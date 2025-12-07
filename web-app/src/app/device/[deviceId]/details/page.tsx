@@ -271,6 +271,7 @@ export default function DeviceDetailsPage() {
             inCar: null,
             engineRunning: null,
           },
+          telemetry: null,
         });
       }
     } catch (err) {
@@ -283,6 +284,7 @@ export default function DeviceDetailsPage() {
           inCar: null,
           engineRunning: null,
         },
+        telemetry: null,
       });
     }
   };

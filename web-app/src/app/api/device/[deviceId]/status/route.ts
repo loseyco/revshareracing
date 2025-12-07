@@ -39,7 +39,11 @@ export async function GET(
         iracingConnected: false,
         canExecuteCommands: false,
         reason: "Device not claimed",
-        carState: null,
+        carState: {
+          inCar: null,
+          engineRunning: null,
+        },
+        telemetry: null,
       });
     }
 
