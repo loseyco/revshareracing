@@ -1,59 +1,15 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 
 import { createSupabaseServiceClient } from "@/lib/supabase-server";
-import { createClient } from "@supabase/supabase-js";
-import { serverEnv } from "@/lib/env";
 
 export async function GET(request: Request) {
   try {
-    // Try to get user ID from query params first (sent by client)
+    // Get user ID from query params (sent by client)
     const { searchParams } = new URL(request.url);
-    let userId: string | null = searchParams.get("userId");
-
-    // If not in query params, try to get from cookies
-    if (!userId) {
-      const cookieStore = await cookies();
-      
-      try {
-        if (!serverEnv) {
-          throw new Error("Server environment variables not configured");
-        }
-        
-        const supabaseClient = createClient(
-          serverEnv.NEXT_PUBLIC_SUPABASE_URL,
-          serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-          {
-            cookies: {
-              getAll() {
-                return cookieStore.getAll().map(cookie => ({
-                  name: cookie.name,
-                  value: cookie.value
-                }));
-              },
-              set() {},
-              remove() {}
-            }
-          }
-        );
-
-        const {
-          data: { user },
-          error: authError
-        } = await supabaseClient.auth.getUser();
-        
-        if (authError) {
-          console.warn("[listDevices] Auth error:", authError);
-        } else {
-          userId = user?.id ?? null;
-        }
-      } catch (error) {
-        console.warn("[listDevices] Could not get user from session:", error);
-      }
-    }
+    const userId = searchParams.get("userId");
 
     if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized - userId required" }, { status: 401 });
     }
 
     const supabase = createSupabaseServiceClient();
