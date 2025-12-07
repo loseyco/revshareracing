@@ -1,0 +1,25 @@
+# iRacing Commander V4 - PC Service Dependencies
+
+# Supabase client (aligned dependency versions)
+supabase==2.3.0
+supafunc==0.10.2
+httpx==0.28.1
+httpcore==1.0.5
+h11==0.14.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# iRacing SDK (optional - install separately if needed)
+# irsdk
+
+# Utilities
+requests==2.31.0
+
+# Optional: Flask for minimal API server
+Flask==3.0.0
+flask-cors==4.0.0
+
+# GUI
+PySide6==6.7.2
+
