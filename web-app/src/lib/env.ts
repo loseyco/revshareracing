@@ -60,5 +60,11 @@ if (shouldValidateServer && !parsedServer.success) {
   );
 }
 
-export const serverEnv = parsedServer.data;
+// TypeScript: parsedServer.data is always defined here because:
+// 1. If shouldValidateServer is false, we return { success: true, data: ... }
+// 2. If shouldValidateServer is true and validation fails, we throw above
+// 3. If shouldValidateServer is true and validation succeeds, data is defined
+export const serverEnv = parsedServer.success 
+  ? parsedServer.data 
+  : (() => { throw new Error("Server env validation failed"); })();
 

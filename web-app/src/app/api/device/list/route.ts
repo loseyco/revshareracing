@@ -16,6 +16,10 @@ export async function GET(request: Request) {
       const cookieStore = await cookies();
       
       try {
+        if (!serverEnv) {
+          throw new Error("Server environment variables not configured");
+        }
+        
         const supabaseClient = createClient(
           serverEnv.NEXT_PUBLIC_SUPABASE_URL,
           serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
