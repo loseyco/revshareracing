@@ -36,7 +36,7 @@ export default function RegisterPage() {
         throw signUpError;
       }
       // Redirect to the intended destination (usually the claim page)
-      router.replace(redirectTo);
+      router.replace(redirectTo as any);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error during registration.");
     } finally {

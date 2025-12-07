@@ -17,7 +17,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   if (session) {
-    router.replace(redirectTo);
+    router.replace(redirectTo as any);
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -29,7 +29,7 @@ export default function LoginPage() {
       if (signInError) {
         throw signInError;
       }
-      router.replace(redirectTo);
+      router.replace(redirectTo as any);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error during login.");
     } finally {
