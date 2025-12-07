@@ -267,7 +267,10 @@ export default function DeviceDetailsPage() {
           iracingConnected: false,
           canExecuteCommands: false,
           reason: "Unable to check status",
-          carState: null,
+          carState: {
+            inCar: null,
+            engineRunning: null,
+          },
         });
       }
     } catch (err) {
@@ -276,7 +279,10 @@ export default function DeviceDetailsPage() {
         iracingConnected: false,
         canExecuteCommands: false,
         reason: "Unable to check status",
-        carState: null,
+        carState: {
+          inCar: null,
+          engineRunning: null,
+        },
       });
     }
   };
