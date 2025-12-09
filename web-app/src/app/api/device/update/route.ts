@@ -6,10 +6,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server";
 const updateSchema = z.object({
   deviceId: z.string().min(1),
   deviceName: z.string().optional(),
-  location: z.string().optional()
+  location: z.string().optional(),
+  userId: z.string().optional() // User ID from client session
 });
 
-export async function PATCH(request: Request) {
+async function handleUpdate(request: Request) {
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
 
@@ -23,13 +24,13 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const { deviceId, deviceName, location } = parsed.data;
+  const { deviceId, deviceName, location, userId } = parsed.data;
   const supabase = createSupabaseServiceClient();
 
-  // First, verify the device exists and get current user
+  // First, verify the device exists and check ownership
   const { data: deviceRecord, error: fetchError } = await supabase
     .from("irc_devices")
-    .select("device_id, owner_user_id")
+    .select("device_id, owner_user_id, claimed")
     .eq("device_id", deviceId)
     .limit(1)
     .maybeSingle();
@@ -43,6 +44,21 @@ export async function PATCH(request: Request) {
     return NextResponse.json(
       { error: "Device not found." },
       { status: 404 }
+    );
+  }
+
+  // Verify device is claimed and user owns it
+  if (!deviceRecord.claimed) {
+    return NextResponse.json(
+      { error: "Device must be claimed before it can be updated." },
+      { status: 403 }
+    );
+  }
+
+  if (userId && deviceRecord.owner_user_id !== userId) {
+    return NextResponse.json(
+      { error: "You don't have permission to update this device." },
+      { status: 403 }
     );
   }
 
@@ -72,5 +88,14 @@ export async function PATCH(request: Request) {
   }
 
   return NextResponse.json({ success: true, device: updatedDevice });
+}
+
+// Support both POST and PATCH methods
+export async function POST(request: Request) {
+  return handleUpdate(request);
+}
+
+export async function PATCH(request: Request) {
+  return handleUpdate(request);
 }
 

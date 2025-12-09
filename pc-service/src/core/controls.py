@@ -1,6 +1,6 @@
 """
 Controls Module
-Reads iRacing key bindings and exposes commander controls
+Reads iRacing key bindings and exposes racing controls
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ VK_NAMES = {
 
 
 class ControlsManager:
-    """Manages commander controls loaded from iRacing configuration"""
+    """Manages racing controls loaded from iRacing configuration"""
 
     def __init__(self):
         self.ir = None
@@ -368,7 +368,7 @@ class ControlsManager:
         self.ir = ir_instance
 
     def get_bindings(self, force: bool = False) -> Dict[str, Dict[str, Optional[str]]]:
-        """Return commander controls with combos"""
+        """Return racing controls with combos"""
         self.load_bindings(force=force)
         return self.bindings
     
@@ -470,6 +470,10 @@ class ControlsManager:
 
     def get_last_error(self) -> Optional[str]:
         return self._last_error
+    
+    def iracing_window_exists(self) -> bool:
+        """Check if iRacing window exists without attempting to focus it."""
+        return self._find_iracing_hwnd() is not None
     
     def focus_iracing_window(self) -> bool:
         """Focus the iRacing window. Returns True if successful."""
@@ -735,12 +739,12 @@ class ControlsManager:
 
     def _focus_iracing_window(self) -> bool:
         if USER32 is None:
-            print("[FOCUS] USER32 not available (not Windows)")
             return False
         hwnd = self._find_iracing_hwnd()
         if not hwnd:
             self._last_error = "iRacing window not found"
-            print("[FOCUS] iRacing window not found")
+            # Don't spam logs - the main loop should check iracing_window_exists() first
+            # This is a fallback for when focus is called directly
             return False
         try:
             # Get window title for logging

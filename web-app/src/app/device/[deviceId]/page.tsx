@@ -1,37 +1,33 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function DevicePage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const deviceId = params.deviceId as string;
+  const claimCode = searchParams.get("claimCode");
 
+  // Redirect to claim page if claimCode exists, otherwise redirect to details
+  useEffect(() => {
+    if (claimCode) {
+      router.replace(`/device/${deviceId}/claim?claimCode=${claimCode}`);
+    } else {
+      router.replace(`/device/${deviceId}/details`);
+    }
+  }, [claimCode, deviceId, router]);
+
+  // Show loading state while redirecting
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Device: {deviceId}</h1>
-        <p className="mt-2 text-slate-300">Manage and test commands for this rig</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Link
-          href={`/device/${deviceId}/test`}
-          className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition hover:border-fuchsia-500/60 hover:bg-slate-900/80"
-        >
-          <h2 className="text-xl font-semibold text-white">Command Tester</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Queue and test commands for this device. View pending commands and monitor execution.
-          </p>
-        </Link>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <h2 className="text-xl font-semibold text-white">Device Status</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            View device information, telemetry status, and configuration.
-          </p>
-          <p className="mt-4 text-xs text-slate-400">Coming soon</p>
+      <div className="text-center">
+        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20 mb-4">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-red-500 border-t-transparent"></div>
         </div>
+        <p className="text-slate-300">Redirecting...</p>
       </div>
     </div>
   );

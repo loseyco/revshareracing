@@ -1,5 +1,5 @@
 """
-iRacing Commander V4 - PC Service
+Rev Share Racing - PC Service
 Lightweight service for PC operations: lap collection, rig registration, keystrokes, configs
 Communicates directly with Supabase - no web server needed
 """
@@ -19,14 +19,26 @@ from supabase import create_client
 
 # Initialize Supabase
 print("[*] Connecting to database...")
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_SERVICE_ROLE_KEY else supabase
-print("[OK] Database connected!")
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_SERVICE_ROLE_KEY else supabase
+    print("[OK] Database connected!")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize Supabase client: {e}")
+    print("[ERROR] The application may not function correctly without database connection")
+    # Create dummy clients to prevent crashes, but service will likely fail later
+    supabase = None
+    supabase_service = None
 
-# Configure modules
-device.set_supabase(supabase)
-laps.set_supabase(supabase_service)
-print("[OK] Modules configured")
+# Configure modules (only if Supabase clients were created)
+if supabase:
+    device.set_supabase(supabase)
+if supabase_service:
+    laps.set_supabase(supabase_service)
+if supabase:
+    print("[OK] Modules configured")
+else:
+    print("[WARN] Modules not fully configured - Supabase connection failed")
 
 
 class RigService:
@@ -373,19 +385,22 @@ class RigService:
                     self._update_heartbeat()
                 
                 if not telemetry.is_connected():
-                    # Focus iRacing window before attempting connection
-                    # The SDK may require the window to be focused to connect
+                    # Only try to focus iRacing window if it actually exists
+                    # This prevents spam when iRacing is not running
                     try:
                         if self.controls_manager:
-                            if self.controls_manager.focus_iracing_window():
-                                print("[INFO] Focused iRacing window before connection attempt")
-                            else:
-                                print("[WARN] Could not focus iRacing window")
+                            if self.controls_manager.iracing_window_exists():
+                                # Window exists, try to focus it before connecting
+                                if self.controls_manager.focus_iracing_window():
+                                    print("[INFO] Focused iRacing window before connection attempt")
+                                else:
+                                    print("[WARN] Could not focus iRacing window")
+                                # Small delay to allow window focus to take effect
+                                time.sleep(0.2)
+                            # If window doesn't exist, skip focusing but still try to connect
+                            # (in case iRacing starts while service is running)
                     except Exception as e:
-                        print(f"[WARN] Error focusing iRacing window: {e}")
-                    
-                    # Small delay to allow window focus to take effect
-                    time.sleep(0.2)
+                        print(f"[WARN] Error checking/focusing iRacing window: {e}")
                     
                     telemetry.connect()
                 
@@ -407,18 +422,22 @@ class RigService:
         self.running = True
         
         # Test Supabase connection
-        try:
-            supabase.table('irc_devices').select('device_id').limit(1).execute()
-            self.supabase_connected = True
-            self.last_supabase_sync = time.time()
-            
-            # Initialize last_logged_lap from database to prevent re-recording on restart
-            if self.device_id:
-                self._initialize_lap_tracking()
-                self.refresh_supabase_metadata(force=True)
-        except Exception as e:
+        if supabase:
+            try:
+                supabase.table('irc_devices').select('device_id').limit(1).execute()
+                self.supabase_connected = True
+                self.last_supabase_sync = time.time()
+                
+                # Initialize last_logged_lap from database to prevent re-recording on restart
+                if self.device_id:
+                    self._initialize_lap_tracking()
+                    self.refresh_supabase_metadata(force=True)
+            except Exception as e:
+                self.supabase_connected = False
+                print(f"[WARN] Supabase connection test failed: {e}")
+        else:
             self.supabase_connected = False
-            print(f"[WARN] Supabase connection test failed: {e}")
+            print("[WARN] Supabase client not initialized - service may have limited functionality")
 
         # Load commander controls
         try:
@@ -826,7 +845,7 @@ class RigService:
             print(f"[WARN] Failed to fetch lap count: {e}")
 
     # ------------------------------------------------------------------
-    # Commander controls helpers
+    # Racing controls helpers
     # ------------------------------------------------------------------
     def get_controls_mapping(self, force: bool = False):
         try:
@@ -1180,12 +1199,15 @@ class RigService:
         
         try:
             device_info = device.get_info()
-            portal_url = device_info.get('portal_url', 'http://localhost:3000/device')
-            # Extract base URL for fallback polling
+            portal_url = device_info.get('portal_url', 'https://revshareracing.com/device/rig-unknown')
+            # Extract base URL for fallback polling - remove /device/rig-xxx or /device suffix
             if '/device/' in portal_url:
                 portal_base = portal_url.rsplit('/device/', 1)[0]
+            elif portal_url.endswith('/device'):
+                portal_base = portal_url.rsplit('/device', 1)[0]
             else:
-                portal_base = portal_url.rsplit('/', 1)[0]
+                # If no /device in path, assume it's already a base URL
+                portal_base = portal_url.rstrip('/')
             
             print(f"[*] Initializing command queue (device: {self.device_id}, portal: {portal_base})")
             
@@ -1353,7 +1375,7 @@ def get_service():
 
 if __name__ == '__main__':
     print("=" * 80)
-    print("iRacing Commander V4 - PC Service")
+    print("Rev Share Racing - PC Service")
     print("=" * 80)
     print()
     print("This service handles:")
