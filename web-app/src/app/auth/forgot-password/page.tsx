@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, Suspense } from "react";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
+import { clientEnv } from "@/lib/env";
 
 function ForgotPasswordFormContent() {
   const { supabase } = useSupabase();
@@ -21,8 +22,9 @@ function ForgotPasswordFormContent() {
     setLoading(true);
 
     try {
-      // Get the current origin for the redirect URL
-      const redirectTo = `${window.location.origin}/auth/reset-password`;
+      // Get the site URL from environment variable, fallback to current origin for development
+      const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+      const redirectTo = `${siteUrl}/auth/reset-password`;
       
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo,

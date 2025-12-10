@@ -55,7 +55,10 @@ Create `.env.local` file:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_SITE_URL=https://revshareracing.com
 ```
+
+**Note:** `NEXT_PUBLIC_SITE_URL` is optional. If not set, it will use `window.location.origin` (useful for local development). For production, set it to your production domain (e.g., `https://revshareracing.com`).
 
 ---
 
