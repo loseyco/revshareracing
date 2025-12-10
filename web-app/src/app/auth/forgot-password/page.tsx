@@ -22,8 +22,9 @@ function ForgotPasswordFormContent() {
     setLoading(true);
 
     try {
-      // Get the site URL from environment variable, fallback to current origin for development
-      const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "");
+      // Always use production URL for password reset links
+      // This ensures emails work correctly regardless of where the request is made from
+      const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL || "https://revshareracing.com";
       const redirectTo = `${siteUrl}/auth/reset-password`;
       
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
