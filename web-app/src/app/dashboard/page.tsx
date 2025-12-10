@@ -77,7 +77,18 @@ export default function DashboardPage() {
           return { ...device, lap_count: 0 };
         })
       );
-      setDevices(devicesWithLaps);
+      
+      // Sort devices: active rigs first (iracing_connected && service online)
+      const sortedDevices = devicesWithLaps.sort((a, b) => {
+        const aIsActive = a.iracing_connected === true && isServiceOnline(a.last_seen);
+        const bIsActive = b.iracing_connected === true && isServiceOnline(b.last_seen);
+        
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
+        return 0; // Keep original order for same status
+      });
+      
+      setDevices(sortedDevices);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load devices");
     } finally {
@@ -102,6 +113,9 @@ export default function DashboardPage() {
     return null; // Will redirect
   }
 
+  // Direct download link to latest release
+  const downloadUrl = "https://github.com/loseyco/revshareracing/releases/download/1.0.0/RevShareRacing.exe";
+
   return (
     <section className="space-y-8 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -111,9 +125,20 @@ export default function DashboardPage() {
             Manage your claimed rigs and monitor their status in real-time
           </p>
         </div>
-        <p className="text-xs sm:text-sm text-slate-500">
-          To claim a rig, use the "Claim This Rig" button from the PC service
-        </p>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <a
+            href={downloadUrl}
+            className="btn-primary inline-flex items-center gap-2 text-sm px-5 py-2.5 whitespace-nowrap"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span>Download Latest Client</span>
+          </a>
+          <p className="text-xs sm:text-sm text-slate-500">
+            To claim a rig, use the "Claim This Rig" button from the PC service
+          </p>
+        </div>
       </div>
 
       {error && (

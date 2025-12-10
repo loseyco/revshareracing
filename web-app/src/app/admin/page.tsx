@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSupabase } from "@/components/providers/supabase-provider";
+import { useRealtimeSubscription } from "@/lib/use-realtime";
 
 type Stats = {
   users: { total: number };
@@ -11,6 +13,7 @@ type Stats = {
 };
 
 export default function AdminDashboardPage() {
+  const { supabase } = useSupabase();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +21,102 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     fetchStats();
   }, []);
+
+  // Subscribe to realtime changes for all tables to update stats
+  useRealtimeSubscription(supabase, "irc_devices", (payload) => {
+    if (payload.eventType === "INSERT") {
+      setStats(prev => prev ? {
+        ...prev,
+        devices: {
+          ...prev.devices,
+          total: prev.devices.total + 1,
+          ...(payload.new?.claimed ? { claimed: prev.devices.claimed + 1 } : { unclaimed: prev.devices.unclaimed + 1 })
+        }
+      } : null);
+    } else if (payload.eventType === "DELETE") {
+      setStats(prev => prev ? {
+        ...prev,
+        devices: {
+          ...prev.devices,
+          total: Math.max(0, prev.devices.total - 1),
+          ...(payload.old?.claimed ? { claimed: Math.max(0, prev.devices.claimed - 1) } : { unclaimed: Math.max(0, prev.devices.unclaimed - 1) })
+        }
+      } : null);
+    } else if (payload.eventType === "UPDATE" && payload.new && payload.old) {
+      // Handle claimed status change
+      if (payload.new.claimed !== payload.old.claimed) {
+        setStats(prev => prev ? {
+          ...prev,
+          devices: {
+            ...prev.devices,
+            claimed: payload.new.claimed ? prev.devices.claimed + 1 : Math.max(0, prev.devices.claimed - 1),
+            unclaimed: payload.new.claimed ? Math.max(0, prev.devices.unclaimed - 1) : prev.devices.unclaimed + 1
+          }
+        } : null);
+      }
+    }
+  });
+
+  useRealtimeSubscription(supabase, "irc_device_commands", (payload) => {
+    if (payload.eventType === "INSERT") {
+      setStats(prev => prev ? {
+        ...prev,
+        commands: {
+          ...prev.commands,
+          total: prev.commands.total + 1,
+          ...(payload.new?.status === "pending" ? { pending: prev.commands.pending + 1 } : {}),
+          ...(payload.new?.status === "completed" ? { completed: prev.commands.completed + 1 } : {})
+        }
+      } : null);
+    } else if (payload.eventType === "UPDATE" && payload.new && payload.old) {
+      // Handle status changes
+      if (payload.new.status !== payload.old.status) {
+        setStats(prev => prev ? {
+          ...prev,
+          commands: {
+            ...prev.commands,
+            pending: payload.old.status === "pending" ? Math.max(0, prev.commands.pending - 1) : 
+                     payload.new.status === "pending" ? prev.commands.pending + 1 : prev.commands.pending,
+            completed: payload.old.status === "completed" ? Math.max(0, prev.commands.completed - 1) :
+                       payload.new.status === "completed" ? prev.commands.completed + 1 : prev.commands.completed
+          }
+        } : null);
+      }
+    } else if (payload.eventType === "DELETE") {
+      setStats(prev => prev ? {
+        ...prev,
+        commands: {
+          ...prev.commands,
+          total: Math.max(0, prev.commands.total - 1),
+          ...(payload.old?.status === "pending" ? { pending: Math.max(0, prev.commands.pending - 1) } : {}),
+          ...(payload.old?.status === "completed" ? { completed: Math.max(0, prev.commands.completed - 1) } : {})
+        }
+      } : null);
+    }
+  });
+
+  useRealtimeSubscription(supabase, "irc_laps", (payload) => {
+    if (payload.eventType === "INSERT") {
+      const isLast24Hours = payload.new?.timestamp && 
+        (Date.now() - new Date(payload.new.timestamp).getTime()) < 24 * 60 * 60 * 1000;
+      setStats(prev => prev ? {
+        ...prev,
+        laps: {
+          ...prev.laps,
+          total: prev.laps.total + 1,
+          last24Hours: isLast24Hours ? prev.laps.last24Hours + 1 : prev.laps.last24Hours
+        }
+      } : null);
+    } else if (payload.eventType === "DELETE") {
+      setStats(prev => prev ? {
+        ...prev,
+        laps: {
+          ...prev.laps,
+          total: Math.max(0, prev.laps.total - 1)
+        }
+      } : null);
+    }
+  });
 
   const fetchStats = async () => {
     try {

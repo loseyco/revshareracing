@@ -12,12 +12,15 @@ export async function GET(request: NextRequest) {
     const supabase = createSupabaseServiceClient();
 
     // Get counts for all entities
-    const [usersCount, devicesCount, commandsCount, lapsCount] = await Promise.all([
-      supabase.auth.admin.listUsers().then(r => ({ count: r.data?.users?.length || 0, error: r.error })),
+    // Note: For users, we can only get an approximation since Supabase admin API doesn't provide total count
+    const [usersData, devicesCount, commandsCount, lapsCount] = await Promise.all([
+      supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }).then(r => ({ data: r.data, error: r.error })),
       supabase.from("irc_devices").select("*", { count: "exact", head: true }),
       supabase.from("irc_device_commands").select("*", { count: "exact", head: true }),
       supabase.from("irc_laps").select("*", { count: "exact", head: true })
     ]);
+    
+    const usersCount = { count: usersData.data?.users?.length || 0 };
 
     // Get claimed vs unclaimed devices
     const { count: claimedDevices } = await supabase
