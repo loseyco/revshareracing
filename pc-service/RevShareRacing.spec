@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('C:\\Users\\pjlos\\OneDrive\\Projects\\RevShareRacing\\pc-service\\src', 'src')]
 binaries = []
-hiddenimports = ['supabase', 'postgrest', 'realtime', 'storage', 'gotrue', 'functions', 'urllib3', 'certifi', 'requests', 'websocket', 'websockets', 'tkinter.ttk', 'python_dotenv', 'dotenv', 'Flask', 'flask_cors', 'PySide6', 'PIL', 'PIL._tkinter_finder']
+hiddenimports = ['supabase', 'postgrest', 'realtime', 'storage', 'gotrue', 'functions', 'urllib3', 'certifi', 'requests', 'websocket', 'websockets', 'tkinter.ttk', 'python_dotenv', 'dotenv', 'Flask', 'flask_cors', 'PySide6', 'PIL', 'PIL._tkinter_finder', 'pyirsdk', 'irsdk']
 tmp_ret = collect_all('supabase')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('postgrest')

@@ -16,7 +16,17 @@ type Device = {
   claimed: boolean;
   last_seen?: string;
   lap_count?: number;
+  iracing_connected?: boolean;
 };
+
+// Helper function to check if service is online (last_seen within last 60 seconds)
+function isServiceOnline(lastSeen?: string): boolean {
+  if (!lastSeen) return false;
+  const lastSeenTime = new Date(lastSeen).getTime();
+  const now = Date.now();
+  const timeSinceLastSeen = (now - lastSeenTime) / 1000; // seconds
+  return timeSinceLastSeen < 60; // Service is online if seen within last 60 seconds
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -156,13 +166,15 @@ export default function DashboardPage() {
                   </div>
                   <span
                     className={`badge flex-shrink-0 ${
-                      device.status === "active"
+                      device.iracing_connected === true && isServiceOnline(device.last_seen)
                         ? "badge-success"
                         : "badge-warning"
                     }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-current mr-1.5"></span>
-                    <span className="hidden sm:inline">{device.status || "unknown"}</span>
+                    <span className="hidden sm:inline">
+                      {device.iracing_connected === true && isServiceOnline(device.last_seen) ? "active" : "inactive"}
+                    </span>
                     <span className="sm:hidden">•</span>
                   </span>
                 </div>

@@ -76,7 +76,7 @@ Write-Host "-> Frontend dev server launching at http://localhost:3000" -Foregrou
 
 if (-not $Headless) {
     # Set environment variable and run Python in the new PowerShell window
-    $pcCommand = "`$env:GRIDPASS_ENV = 'development'; Set-Location `"$root\pc-service`"; python start.py"
+    $pcCommand = "`$env:REVSHARERACING_ENV = 'development'; Set-Location `"$root\pc-service`"; python start.py"
     Start-WindowProcess -WorkingDirectory "$root\pc-service" -Command $pcCommand
     Write-Host "-> PC service starting in a new window." -ForegroundColor Green
     Write-Host "  Use CTRL+C in that window to stop the service."

@@ -1,4 +1,4 @@
-# iRacing Commander V4 - PC Service Dependencies
+# Rev Share Racing - PC Service Dependencies
 
 # Supabase client (aligned dependency versions)
 supabase==2.3.0
@@ -10,8 +10,8 @@ h11==0.14.0
 # Environment variables
 python-dotenv==1.0.0
 
-# iRacing SDK (optional - install separately if needed)
-# irsdk
+# iRacing SDK (required for telemetry)
+irsdk
 
 # Utilities
 requests==2.31.0

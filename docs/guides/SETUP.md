@@ -1,6 +1,6 @@
 # Complete Setup Guide
 
-**Detailed setup instructions for GridPass Commander V4**
+**Detailed setup instructions for Rev Share Racing**
 
 ---
 

@@ -489,10 +489,15 @@ def create_queue(device_id: str, supabase_client=None, portal_base_url: str = No
     # Fallback to polling if no Supabase client
     if portal_base_url is None:
         device_info = device.get_info()
-        portal_base_url = device_info.get('portal_url', 'http://localhost:3000/device')
-        # Extract base URL
-        if '/device/' in portal_base_url:
-            portal_base_url = portal_base_url.rsplit('/device/', 1)[0]
+        portal_url = device_info.get('portal_url', 'https://revshareracing.com/device/rig-unknown')
+        # Extract base URL - remove /device/rig-xxx or /device suffix
+        if '/device/' in portal_url:
+            portal_base_url = portal_url.rsplit('/device/', 1)[0]
+        elif portal_url.endswith('/device'):
+            portal_base_url = portal_url.rsplit('/device', 1)[0]
+        else:
+            # If no /device in path, assume it's already a base URL
+            portal_base_url = portal_url.rstrip('/')
     
     return CommandQueue(device_id, supabase_client=None, portal_base_url=portal_base_url)
 

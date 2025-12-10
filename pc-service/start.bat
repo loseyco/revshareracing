@@ -1,5 +1,5 @@
 @echo off
-REM iRacing Commander V4 - PC Service Launcher
+REM Rev Share Racing - PC Service Launcher
 REM This batch file runs the PC service with optional arguments
 
 REM Change to the script directory

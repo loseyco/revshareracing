@@ -1,0 +1,33 @@
+GIT AUTHENTICATION - QUICK FIX
+================================
+
+Since it was working before, your credentials likely expired.
+
+EASIEST FIX:
+1. Open PowerShell in this folder
+2. Run: git push origin main
+3. When prompted for credentials:
+   - Username: your GitHub username
+   - Password: You need a Personal Access Token (see below)
+
+GET A PERSONAL ACCESS TOKEN:
+1. Go to: https://github.com/settings/tokens
+2. Click "Generate new token (classic)"
+3. Name it: "RevShareRacing"
+4. Select scope: repo (check all boxes)
+5. Click "Generate token"
+6. COPY THE TOKEN (you won't see it again!)
+
+USE THE TOKEN:
+- When Git asks for password, paste the token (NOT your GitHub password)
+- Windows will save it for future pushes
+
+ALTERNATIVE - GitHub CLI:
+If you have GitHub CLI installed:
+  gh auth login
+
+Then just: git push origin main
+
+
+
+

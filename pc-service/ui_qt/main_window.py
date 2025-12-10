@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
     def __init__(self, service):
         super().__init__()
         self.service = service
-        self.setWindowTitle("iRacing Commander V4")
+        self.setWindowTitle("Rev Share Racing")
         self.resize(1400, 900)
 
         self.supabase_client = supabase_client_global
@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(12)
 
-        brand = QLabel("IR Commander")
+        brand = QLabel("Rev Share Racing")
         brand.setObjectName("Brand")
         layout.addWidget(brand)
 
@@ -488,7 +488,7 @@ class MainWindow(QMainWindow):
         scroll_area.setWidget(scroll_content)
         tab_layout.addWidget(scroll_area)
 
-        self.tabs.addTab(tab, "Commander Controls")
+        self.tabs.addTab(tab, "Racing Controls")
 
     def _build_stats_tab(self):
         tab = QWidget()
@@ -1157,7 +1157,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ Auth workflows
     def _show_login_dialog(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Login - iRacing Commander")
+        dialog.setWindowTitle("Login - Rev Share Racing")
         dialog.setModal(True)
 
         layout = QVBoxLayout(dialog)
@@ -1248,7 +1248,7 @@ class MainWindow(QMainWindow):
 
     def _show_register_dialog(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Create Account - iRacing Commander")
+        dialog.setWindowTitle("Create Account - Rev Share Racing")
         dialog.setModal(True)
 
         layout = QVBoxLayout(dialog)
@@ -1740,18 +1740,17 @@ class MainWindow(QMainWindow):
             self._set_rig_status("Device ID not available. Please wait for device sync.", "error")
             return
         
-        # Build the portal URL with claim code if available
+        # Build the claim page URL with claim code
         from core.device import DEVICE_PORTAL_BASE_URL
-        portal_url = f"{DEVICE_PORTAL_BASE_URL}/{device_id}"
+        claim_url = f"{DEVICE_PORTAL_BASE_URL}/{device_id}/claim"
         
         # Add claim code to URL if available and device is unclaimed
         if claim_code and not (self.device_info or {}).get("claimed"):
-            from urllib.parse import urlencode
-            portal_url = f"{portal_url}?claimCode={claim_code}"
+            claim_url = f"{claim_url}?claimCode={claim_code}"
         
         # Open in default browser
-        QDesktopServices.openUrl(QUrl(portal_url))
-        self._set_rig_status(f"Opening claim page in browser: {portal_url}", "info")
+        QDesktopServices.openUrl(QUrl(claim_url))
+        self._set_rig_status(f"Opening claim page in browser: {claim_url}", "info")
 
     def _fetch_recent_laps(self, force: bool = False):
         if not self.supabase_client or not self.service.device_id:
@@ -2112,7 +2111,7 @@ class MainWindow(QMainWindow):
             query = self.controls_filter_input.text().strip().lower()
 
         if not self.controls_bindings:
-            label = QLabel("No commander controls detected. Configure bindings in iRacing.")
+            label = QLabel("No racing controls detected. Configure bindings in iRacing.")
             label.setObjectName("MetaLabel")
             self.controls_layout.addWidget(label, 0, 0)
             return
@@ -2264,7 +2263,7 @@ class MainWindow(QMainWindow):
             self.rig_keys_layout.addWidget(key_widget)
 
         if len(registered_keys) > 5:
-            more_label = QLabel(f"+ {len(registered_keys) - 5} more (see Commander Controls tab)")
+            more_label = QLabel(f"+ {len(registered_keys) - 5} more (see Racing Controls tab)")
             more_label.setObjectName("MetaLabel")
             self.rig_keys_layout.addWidget(more_label)
 

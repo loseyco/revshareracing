@@ -1,5 +1,5 @@
 @echo off
-REM iRacing Commander V4 - PC Service Launcher (no GUI)
+REM Rev Share Racing - PC Service Launcher (no GUI)
 REM Runs the service without GUI window
 
 cd /d "%~dp0"

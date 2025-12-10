@@ -17,7 +17,7 @@ src_dir = script_dir / 'src'
 # PyInstaller arguments
 args = [
     'start.py',  # Main script
-    '--name=GridPassCommander',  # Name of executable
+    '--name=RevShareRacing',  # Name of executable
     '--onedir',  # Create a folder with executable and dependencies
     # Keep console visible for debugging - shows errors
     # Uncomment next line to hide console (only if everything works):
@@ -72,15 +72,15 @@ try:
     print("Build completed successfully!")
     print("=" * 80)
     print()
-    print(f"Executable location: {script_dir / 'dist' / 'GridPassCommander' / 'GridPassCommander.exe'}")
+    print(f"Executable location: {script_dir / 'dist' / 'RevShareRacing' / 'RevShareRacing.exe'}")
     print()
-    print("The 'dist/GridPassCommander' folder contains:")
-    print("  - GridPassCommander.exe (main executable)")
+    print("The 'dist/RevShareRacing' folder contains:")
+    print("  - RevShareRacing.exe (main executable)")
     print("  - All required DLLs and dependencies")
     print("  - src/ folder with your code")
     print()
-    print("You can distribute the entire 'GridPassCommander' folder.")
-    print("Users can run GridPassCommander.exe directly - no installation needed!")
+    print("You can distribute the entire 'RevShareRacing' folder.")
+    print("Users can run RevShareRacing.exe directly - no installation needed!")
 except Exception as e:
     print()
     print("=" * 80)

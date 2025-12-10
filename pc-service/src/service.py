@@ -54,6 +54,7 @@ class RigService:
         self.hardware_fingerprint = None
         self.last_logged_lap = 0
         self.last_session_time = None
+        self.last_session_unique_id = None  # Track session using iRacing's SessionUniqueID
         self.laps_recorded_session = 0
         self.laps_total_recorded = 0
         self.last_lap_time = None
@@ -196,15 +197,23 @@ class RigService:
         except (TypeError, ValueError):
             lap_current = 0
         
-        # On first telemetry update after startup, check if we're in a new session
-        # If current lap is much lower than last logged lap, we're probably in a new session
-        if not hasattr(self, '_session_checked') and lap_current > 0 and self.last_logged_lap > 0:
-            if lap_current < self.last_logged_lap - 3:
-                # Current lap is significantly lower than last logged lap - probably a new session
-                print(f"[INFO] New session detected on startup (lap_current={lap_current} < last_logged_lap={self.last_logged_lap}) - resetting lap tracking")
-                self.last_logged_lap = 0
-                self._last_recorded_lap_time = None
-                self._pending_lap_completion = None
+        # On first telemetry update after startup, initialize session tracking
+        if not hasattr(self, '_session_checked'):
+            session_unique_id = data.get('session_unique_id')
+            if session_unique_id is not None:
+                self.last_session_unique_id = session_unique_id
+                print(f"[INFO] Initialized session tracking: SessionUniqueID={session_unique_id}")
+            
+            # If current lap is lower than last logged lap, we're probably in a new session
+            # (fallback check in case SessionUniqueID is not available)
+            if lap_current > 0 and self.last_logged_lap > 0:
+                if lap_current < self.last_logged_lap - 1:
+                    # Current lap is lower than last logged lap - probably a new session
+                    print(f"[INFO] New session detected on startup (lap_current={lap_current} < last_logged_lap={self.last_logged_lap}) - resetting lap tracking")
+                    self.last_logged_lap = 0
+                    self._last_recorded_lap_time = None
+                    self._pending_lap_completion = None
+                    self.laps_recorded_session = 0
             self._session_checked = True
         
         # Debug: Log lap values periodically to see what's happening
@@ -222,25 +231,46 @@ class RigService:
             self._last_lap_current = lap_current
             return
         
-        # Check for session reset first
+        # Check for session reset/changes FIRST - before processing pending laps
+        # This prevents skipping laps from a new session
+        session_unique_id = data.get('session_unique_id')
         session_time = data.get('session_time')
-        if session_time is not None and self.last_session_time is not None:
-            if session_time < self.last_session_time:
-                # Session reset detected - reset tracking
-                print(f"[INFO] Session reset detected (session_time {self.last_session_time} -> {session_time}) - resetting lap tracking")
-                self.last_logged_lap = 0
-                self._last_recorded_lap_time = None
-                self._last_lap_current = lap_current
-                self._pending_lap_completion = None
         
-        # Also detect new session if current lap is much lower than last logged lap
-        # This handles the case where we start a new session but session_time hasn't reset yet
-        if lap_current > 0 and self.last_logged_lap > 0 and lap_current < self.last_logged_lap - 5:
-            # Current lap is significantly lower than last logged lap - probably a new session
-            print(f"[INFO] New session detected (lap_current={lap_current} < last_logged_lap={self.last_logged_lap}) - resetting lap tracking")
+        # Detect session changes using iRacing's SessionUniqueID (most reliable)
+        session_changed = False
+        
+        # Method 1: SessionUniqueID changed (primary method - most reliable)
+        if session_unique_id is not None:
+            if self.last_session_unique_id is not None and session_unique_id != self.last_session_unique_id:
+                session_changed = True
+                print(f"[INFO] New session detected (SessionUniqueID changed: {self.last_session_unique_id} -> {session_unique_id}) - resetting lap tracking")
+            # Update to current session ID
+            self.last_session_unique_id = session_unique_id
+        else:
+            # Fallback methods if SessionUniqueID is not available
+            # Method 2: Session time reset (went backwards significantly)
+            if session_time is not None and self.last_session_time is not None:
+                if session_time < self.last_session_time - 1.0:  # Allow 1 second tolerance
+                    session_changed = True
+                    print(f"[INFO] Session reset detected (session_time {self.last_session_time:.1f} -> {session_time:.1f}) - resetting lap tracking")
+            
+            # Method 3: Current lap is lower than last logged lap (new session, lap numbers reset)
+            if lap_current > 0 and self.last_logged_lap > 0 and lap_current < self.last_logged_lap - 1:
+                # If current lap is lower than last logged lap, it's likely a new session
+                session_changed = True
+                print(f"[INFO] New session detected (lap_current={lap_current} < last_logged_lap={self.last_logged_lap}) - resetting lap tracking")
+        
+        # Reset tracking if session changed
+        if session_changed:
             self.last_logged_lap = 0
             self._last_recorded_lap_time = None
+            self._last_lap_current = lap_current
             self._pending_lap_completion = None
+            self.laps_recorded_session = 0
+        
+        # Update session time tracking (for fallback methods)
+        if session_time is not None:
+            self.last_session_time = session_time
         
         # FIRST: Process any pending lap completion BEFORE checking for new increments
         # This prevents new increments from overwriting pending completions
@@ -248,10 +278,28 @@ class RigService:
             pending_lap_num, pending_timestamp = self._pending_lap_completion
             lap_time_raw = data.get('lap_last_time')
             
-            # Skip if we've already logged this completed lap
-            if pending_lap_num <= self.last_logged_lap:
+            # Check if this is a new session using SessionUniqueID (most reliable)
+            session_unique_id = data.get('session_unique_id')
+            is_new_session = False
+            if session_unique_id is not None and self.last_session_unique_id is not None:
+                is_new_session = (session_unique_id != self.last_session_unique_id)
+            else:
+                # Fallback: check if lap_current is lower than last_logged_lap
+                is_new_session = (lap_current > 0 and self.last_logged_lap > 0 and 
+                                lap_current < self.last_logged_lap)
+            
+            # Skip if we've already logged this completed lap AND it's not a new session
+            if pending_lap_num <= self.last_logged_lap and not is_new_session:
                 print(f"[DEBUG] Lap {pending_lap_num} already logged (last_logged_lap={self.last_logged_lap}), clearing pending")
                 self._pending_lap_completion = None
+            elif is_new_session and pending_lap_num <= self.last_logged_lap:
+                # New session detected - reset last_logged_lap to allow this lap
+                if session_unique_id:
+                    print(f"[DEBUG] New session detected (SessionUniqueID changed) - allowing pending lap {pending_lap_num}")
+                else:
+                    print(f"[DEBUG] New session detected (lap_current={lap_current} < last_logged_lap={self.last_logged_lap}) - allowing pending lap {pending_lap_num}")
+                self.last_logged_lap = 0
+                # Continue processing the pending lap
             else:
                 # Check if we have a valid lap time (> 0, not -1.0)
                 has_valid_time = lap_time_raw and lap_time_raw > 0
@@ -1042,21 +1090,15 @@ class RigService:
                     break
                 time.sleep(0.5)
         
-        # Step 1: Turn off ignition (only if engine is running)
+        # Step 1: Turn off ignition immediately (to force car to slow down)
         if ignition_combo:
-            current = telemetry.get_current()
-            if current:
-                rpm = current.get('rpm', 0)
-                if rpm > 500:
-                    print("[*] Turning off ignition...")
-                    # Focus iRacing window before sending ignition key
-                    if not self.controls_manager.focus_iracing_window():
-                        return {'success': False, 'message': 'Unable to focus iRacing window before ignition'}
-                    time.sleep(0.15)
-                    self.controls_manager.execute_combo(ignition_combo)
-                    time.sleep(0.3)
-                else:
-                    print("[INFO] Engine already off, skipping ignition step")
+            print("[*] Turning off ignition immediately to force car to slow down...")
+            # Focus iRacing window before sending ignition key
+            if not self.controls_manager.focus_iracing_window():
+                return {'success': False, 'message': 'Unable to focus iRacing window before ignition'}
+            time.sleep(0.15)
+            self.controls_manager.execute_combo(ignition_combo)
+            time.sleep(0.3)  # Give ignition time to turn off
 
         # Step 2: Wait for car to stop (only if moving)
         if initial_speed > 1.5:
@@ -1268,6 +1310,12 @@ class RigService:
         elif cmd_action == 'enter_car':
             # Enter car should just press the reset key (same as reset_car binding)
             # But don't run the full reset sequence - just send the key press directly
+            # Focus iRacing window first (like reset_car does) to ensure it works reliably
+            if not self.controls_manager.focus_iracing_window():
+                result = {'success': False, 'message': 'Unable to focus iRacing window'}
+                self.controls_manager._log_action("enter_car", None, source, result)
+                return result
+            time.sleep(0.15)  # Give window time to fully focus before sending keys
             # Use execute_action which handles focusing and has fallback logic
             # This is simpler and more reliable than trying to manually send the key
             result = self.controls_manager.execute_action("enter_car", source=source)

@@ -19,15 +19,36 @@ import requests
 
 
 def _resolve_portal_base_url() -> str:
-    explicit = os.getenv("GRIDPASS_PORTAL_BASE_URL")
+    explicit = os.getenv("REVSHARERACING_PORTAL_BASE_URL")
     if explicit:
         return explicit.rstrip("/")
     
-    environment = os.getenv("GRIDPASS_ENV", "development").lower()
-    if environment in {"prod", "production"}:
-        return "https://revshareracing.com/device"
+    # Check config file for existing portal_url (if it's not localhost, use it)
+    try:
+        data_dir = Path(__file__).parent.parent.parent / 'data'
+        config_file = data_dir / 'device_config.json'
+        if config_file.exists():
+            import json
+            config = json.loads(config_file.read_text())
+            portal_url = config.get('portal_url', '')
+            if portal_url and 'localhost' not in portal_url and '127.0.0.1' not in portal_url:
+                # Extract base URL from portal_url (e.g., https://revshareracing.com/device/rig-xxx -> https://revshareracing.com/device)
+                if '/device/' in portal_url:
+                    base = portal_url.rsplit('/device/', 1)[0] + '/device'
+                    return base
+                elif portal_url.endswith('/device'):
+                    return portal_url
+    except Exception:
+        pass  # If config file read fails, fall back to environment check
     
-    return "http://localhost:3000/device"
+    # Default to production URL for standalone executables and when no env is set
+    # Only use localhost in explicit development mode
+    environment = os.getenv("REVSHARERACING_ENV", "").lower()
+    if environment in {"dev", "development"}:
+        return "http://localhost:3000/device"
+    
+    # Default to production URL (for standalone executable distribution)
+    return "https://revshareracing.com/device"
 
 
 DEVICE_PORTAL_BASE_URL = _resolve_portal_base_url()
@@ -57,10 +78,13 @@ class DeviceManager:
         """Return the current device information."""
         config = self._ensure_device_config()
         info = dict(config)
+        # Preserve portal_url from config if it exists and is valid, otherwise build it
+        device_id = config.get('device_id')
+        if 'portal_url' not in info or not info.get('portal_url') or (device_id and device_id not in info.get('portal_url', '')):
+            info['portal_url'] = self._build_portal_url(device_id) if device_id else ''
         info.update({
             'local_ip': self.get_local_ip(),
             'public_ip': self.get_public_ip(),
-            'portal_url': self._build_portal_url(config['device_id']),
             'status': self._derive_status(config),
         })
         info['registered'] = bool(info.get('claimed'))
@@ -191,7 +215,7 @@ class DeviceManager:
             'device_name': config.get('device_name') or socket.gethostname(),
             'hardware_fingerprint': fingerprint,
             'claim_code': claim_code,
-            'status': 'unclaimed',
+            'status': 'active',  # Use 'active' instead of 'unclaimed' - database constraint requires valid status
             'owner_user_id': None,
             'location': config.get('location'),
             'company_id': config.get('company_id'),
@@ -299,7 +323,10 @@ class DeviceManager:
             config['company_id'] = None
             updated = True
         
-        config['portal_url'] = self._build_portal_url(config['device_id'])
+        # Only set portal_url if it doesn't exist in config (preserve user-set values)
+        if 'portal_url' not in config or not config.get('portal_url'):
+            config['portal_url'] = self._build_portal_url(config['device_id'])
+            updated = True
         
         if updated:
             self._save_device_config(config)
@@ -313,7 +340,15 @@ class DeviceManager:
         """Persist device configuration to disk."""
         import json
         normalized = dict(config)
-        normalized['portal_url'] = self._build_portal_url(normalized['device_id'])
+        # Preserve existing portal_url if it exists and contains the device_id, otherwise build it
+        device_id = normalized.get('device_id')
+        existing_portal_url = normalized.get('portal_url', '')
+        if existing_portal_url and device_id and device_id in existing_portal_url:
+            # Keep the existing portal_url
+            pass
+        else:
+            # Build portal_url from environment-based base URL
+            normalized['portal_url'] = self._build_portal_url(device_id) if device_id else ''
         self.device_config_file.parent.mkdir(parents=True, exist_ok=True)
         self.device_config_file.write_text(json.dumps(normalized, indent=2))
         self._device_data = normalized

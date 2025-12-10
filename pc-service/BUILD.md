@@ -41,12 +41,12 @@ python build_exe.py
 
 After building, you'll find:
 
-- **Onefolder mode**: `dist/GridPassCommander/GridPassCommander.exe`
+- **Onefolder mode**: `dist/RevShareRacing/RevShareRacing.exe`
   - Contains the exe and all dependencies in one folder
   - Easier to debug and troubleshoot
   - Recommended for distribution
 
-- **Onefile mode**: `dist/GridPassCommander.exe`
+- **Onefile mode**: `dist/RevShareRacing.exe`
   - Single executable file
   - Slower startup (extracts to temp folder)
   - Cleaner distribution
@@ -55,14 +55,14 @@ After building, you'll find:
 
 ### Onefolder Mode (Recommended)
 
-1. Copy the entire `dist/GridPassCommander` folder
-2. Users can run `GridPassCommander.exe` directly
+1. Copy the entire `dist/RevShareRacing` folder
+2. Users can run `RevShareRacing.exe` directly
 3. No installation required
 4. All dependencies are included
 
 ### Onefile Mode
 
-1. Copy `dist/GridPassCommander.exe`
+1. Copy `dist/RevShareRacing.exe`
 2. Users can run it directly
 3. No installation required
 4. All dependencies are bundled inside
@@ -114,8 +114,8 @@ If you get "ModuleNotFoundError":
 
 ```
 dist/
-└── GridPassCommander/
-    ├── GridPassCommander.exe
+└── RevShareRacing/
+    ├── RevShareRacing.exe
     ├── src/
     │   ├── config.py
     │   ├── core/

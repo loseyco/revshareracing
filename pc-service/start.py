@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-iRacing Commander V4 - PC Service Entry Point
+Rev Share Racing - PC Service Entry Point
 """
 
 import sys
@@ -16,7 +16,7 @@ def setup_logging():
         # Running as compiled executable
         log_dir = Path(sys.executable).parent / 'logs'
         log_dir.mkdir(exist_ok=True)
-        log_file = log_dir / f'gridpass_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        log_file = log_dir / f'revshareracing_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
         
         # Redirect stdout and stderr to log file
         class Logger:
@@ -60,16 +60,23 @@ else:
 if __name__ == '__main__':
     try:
         import argparse
-        parser = argparse.ArgumentParser(description='iRacing Commander V4 PC Service')
+        parser = argparse.ArgumentParser(description='Rev Share Racing PC Service')
         parser.add_argument('--api', action='store_true', help='Run minimal API server on localhost:5000')
         parser.add_argument('--no-gui', action='store_true', help='Run without GUI window')
         args = parser.parse_args()
+        
+        # Import config first to ensure it loads properly
+        from config import SUPABASE_URL, SUPABASE_ANON_KEY
+        print(f"[INFO] Using Supabase URL: {SUPABASE_URL[:40]}...")
         
         # Import and run service
         from service import get_service
         
         service = get_service()
         service.start()
+        
+        # Note: Service will handle Supabase connection issues gracefully
+        # It will continue running even if initial connection fails
     except Exception as e:
         error_msg = f"Fatal error during startup: {e}\n{traceback.format_exc()}"
         print(error_msg)
@@ -81,7 +88,7 @@ if __name__ == '__main__':
                 import tkinter as tk
                 root = tk.Tk()
                 root.withdraw()
-                messagebox.showerror("iRacing Commander - Startup Error", 
+                messagebox.showerror("Rev Share Racing - Startup Error", 
                                    f"Failed to start:\n\n{str(e)}\n\nCheck logs folder for details.")
                 root.destroy()
             except:
@@ -106,7 +113,7 @@ if __name__ == '__main__':
         # Run with GUI
         print()
         print("=" * 80)
-        print("iRacing Commander V4 - PC Service (with GUI)")
+        print("Rev Share Racing - PC Service (with GUI)")
         print("=" * 80)
         print()
         print("[OK] GUI window opening...")
@@ -169,7 +176,7 @@ if __name__ == '__main__':
             if getattr(sys, 'frozen', False):
                 try:
                     import tkinter.messagebox as messagebox
-                    messagebox.showerror("iRacing Commander - GUI Error", str(e))
+                    messagebox.showerror("Rev Share Racing - GUI Error", str(e))
                 except:
                     pass
         
@@ -179,7 +186,7 @@ if __name__ == '__main__':
         # Run without GUI
         print()
         print("=" * 80)
-        print("iRacing Commander V4 - PC Service")
+        print("Rev Share Racing - PC Service")
         print("=" * 80)
         print()
         print("This service handles PC operations:")

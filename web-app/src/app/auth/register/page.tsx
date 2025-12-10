@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
 
-export default function RegisterPage() {
+function RegisterFormContent() {
   const { supabase } = useSupabase();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -131,6 +131,25 @@ export default function RegisterPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <section className="mx-auto max-w-md w-full px-4 sm:px-6 animate-fade-in">
+        <div className="glass rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-2xl">
+          <div className="mb-6 sm:mb-8 text-center">
+            <div className="inline-flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30 mb-3 sm:mb-4">
+              <div className="h-7 w-7 sm:h-8 sm:w-8 animate-spin rounded-full border-2 border-red-400 border-t-transparent"></div>
+            </div>
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-1 sm:mb-2">Loading...</h2>
+          </div>
+        </div>
+      </section>
+    }>
+      <RegisterFormContent />
+    </Suspense>
   );
 }
 

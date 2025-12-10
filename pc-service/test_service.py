@@ -90,7 +90,7 @@ def test_supabase():
 
 if __name__ == '__main__':
     print("=" * 80)
-    print("iRacing Commander V4 - PC Service Test")
+    print("Rev Share Racing - PC Service Test")
     print("=" * 80)
     print()
     

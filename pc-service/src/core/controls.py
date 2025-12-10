@@ -88,6 +88,12 @@ for i in range(1, 13):
 KEYEVENTF_KEYUP = 0x0002
 USER32 = ctypes.windll.user32 if os.name == "nt" else None
 SW_RESTORE = 9
+SW_SHOW = 5
+
+# Windows message constants for PostMessage
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+WM_CHAR = 0x0102
 
 MODIFIER_FLAGS = (
     (0x00010000, "SHIFT"),
@@ -561,7 +567,7 @@ class ControlsManager:
         main_key = vk_codes[-1]
 
         try:
-            # Ensure iRacing window is focused before sending keys
+            # Simple approach: Focus iRacing, then send keys
             print(f"[KEY] Preparing to send combo: {combo}")
             focus_result = self._focus_iracing_window()
             if not focus_result:
@@ -569,14 +575,13 @@ class ControlsManager:
                 print(f"[KEY] FAILED to focus iRacing window - aborting key send")
                 return False
             print(f"[KEY] Successfully focused iRacing window")
-            # Give window time to fully focus (increased delay for reliability)
-            time.sleep(0.15)
+            time.sleep(0.15)  # Give window time to focus
             
             # Press modifiers
             for vk in modifiers:
                 print(f"[KEY] Pressing modifier: {vk} (0x{vk:02X})")
                 USER32.keybd_event(vk, 0, 0, 0)
-                time.sleep(0.01)  # Small delay between modifier presses
+                time.sleep(0.01)
             
             # Press main key
             print(f"[KEY] Pressing main key: {main_key} (0x{main_key:02X}) - '{combo}'")
@@ -662,7 +667,7 @@ class ControlsManager:
         key_msg = self._format_key_message(combo)
 
         try:
-            # Ensure iRacing window is focused right before sending keys
+            # Simple approach: Focus iRacing, then send keys
             print(f"[KEY-HOLD] Preparing to hold combo: {combo}")
             if not self._focus_iracing_window():
                 self._last_error = "Unable to focus iRacing window"
@@ -670,7 +675,6 @@ class ControlsManager:
                 self._log_action("combo", combo, source, {'success': False, 'message': f'Failed to {key_msg} - {self._last_error}'})
                 return False, 0.0
             print(f"[KEY-HOLD] Successfully focused iRacing window")
-            # Give window time to fully focus (increased delay for reliability)
             time.sleep(0.15)
             
             # Press modifiers
@@ -738,14 +742,14 @@ class ControlsManager:
         return None
 
     def _focus_iracing_window(self) -> bool:
+        """Focus the iRacing window. Returns True if successful."""
         if USER32 is None:
             return False
         hwnd = self._find_iracing_hwnd()
         if not hwnd:
             self._last_error = "iRacing window not found"
-            # Don't spam logs - the main loop should check iracing_window_exists() first
-            # This is a fallback for when focus is called directly
             return False
+        
         try:
             # Get window title for logging
             length = USER32.GetWindowTextLengthW(hwnd)
@@ -757,51 +761,80 @@ class ControlsManager:
             
             print(f"[FOCUS] Found iRacing window: HWND={hwnd}, Title='{title}'")
             
+            # Restore if minimized
             if USER32.IsIconic(hwnd):
                 print("[FOCUS] Window is minimized - restoring")
                 USER32.ShowWindow(hwnd, SW_RESTORE)
                 time.sleep(0.1)
             
+            # Use AttachThreadInput to allow focus even when another window is active
+            iracing_thread_id = USER32.GetWindowThreadProcessId(hwnd, None)
+            current_thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
+            
+            thread_attached = False
+            if iracing_thread_id != current_thread_id:
+                try:
+                    thread_attached = USER32.AttachThreadInput(current_thread_id, iracing_thread_id, True)
+                    if thread_attached:
+                        print("[FOCUS] Thread input attached")
+                        time.sleep(0.05)
+                except Exception as e:
+                    print(f"[FOCUS] Failed to attach thread input: {e}")
+            
+            # Unlock foreground window restrictions (matches working test)
+            if hasattr(USER32, "LockSetForegroundWindow"):
+                LSFW_UNLOCK = 2
+                result = USER32.LockSetForegroundWindow(LSFW_UNLOCK)
+                print(f"[FOCUS] LockSetForegroundWindow(UNLOCK) returned: {result}")
+            
+            # Allow iRacing to set foreground (matches working test)
+            iracing_process_id = ctypes.c_ulong()
+            USER32.GetWindowThreadProcessId(hwnd, ctypes.byref(iracing_process_id))
             if hasattr(USER32, "AllowSetForegroundWindow"):
-                USER32.AllowSetForegroundWindow(-1)
+                result = USER32.AllowSetForegroundWindow(iracing_process_id.value)
+                print(f"[FOCUS] AllowSetForegroundWindow returned: {result}")
             
-            print("[FOCUS] Calling BringWindowToTop")
+            # Try SwitchToThisWindow first (this is what works in the test)
+            try:
+                switch_func = ctypes.windll.user32.SwitchToThisWindow
+                switch_func.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+                switch_func.restype = None
+                switch_func(hwnd, True)
+                time.sleep(0.3)  # Give it more time like the test
+            except Exception as e:
+                print(f"[FOCUS] SwitchToThisWindow failed: {e}")
+            
+            # Then try standard methods (this also works in the test)
             USER32.BringWindowToTop(hwnd)
-            time.sleep(0.05)
-            
-            print("[FOCUS] Calling SetForegroundWindow")
+            time.sleep(0.1)
             result_fg = USER32.SetForegroundWindow(hwnd)
             print(f"[FOCUS] SetForegroundWindow returned: {result_fg}")
+            time.sleep(0.1)
+            USER32.SetActiveWindow(hwnd)
             time.sleep(0.05)
+            USER32.SetFocus(hwnd)
+            time.sleep(0.1)  # Match test timing
             
-            print("[FOCUS] Calling SetActiveWindow")
-            result_active = USER32.SetActiveWindow(hwnd)
-            print(f"[FOCUS] SetActiveWindow returned: {result_active}")
-            time.sleep(0.05)
+            # Detach thread input
+            if thread_attached:
+                try:
+                    USER32.AttachThreadInput(current_thread_id, iracing_thread_id, False)
+                except Exception:
+                    pass
             
-            print("[FOCUS] Calling SetFocus")
-            result_focus = USER32.SetFocus(hwnd)
-            print(f"[FOCUS] SetFocus returned: {result_focus}")
-            
-            # Verify the window is actually in foreground
-            foreground_hwnd = USER32.GetForegroundWindow()
-            if foreground_hwnd == hwnd:
-                print(f"[FOCUS] SUCCESS - iRacing window is now in foreground (HWND={hwnd})")
+            # Verify it worked (match test timing - wait a bit longer)
+            time.sleep(0.2)  # Match test timing
+            foreground_hwnd_after = USER32.GetForegroundWindow()
+            if foreground_hwnd_after == hwnd:
+                print(f"[FOCUS] SUCCESS - iRacing window is now in foreground")
+                return True
             else:
-                print(f"[FOCUS] WARNING - Expected HWND {hwnd} but foreground is {foreground_hwnd}")
-                # Get foreground window title
-                fg_length = USER32.GetWindowTextLengthW(foreground_hwnd)
-                if fg_length > 0:
-                    fg_buffer = ctypes.create_unicode_buffer(fg_length + 1)
-                    USER32.GetWindowTextW(foreground_hwnd, fg_buffer, fg_length + 1)
-                    print(f"[FOCUS] Foreground window is: '{fg_buffer.value}'")
-            
-            return True
+                print(f"[FOCUS] FAILED - foreground is {foreground_hwnd_after}")
+                self._last_error = "Failed to focus iRacing window"
+                return False
         except Exception as e:
             self._last_error = f"Failed to focus iRacing window: {e}"
             print(f"[FOCUS] EXCEPTION: {e}")
-            import traceback
-            traceback.print_exc()
             return False
 
     def _find_iracing_hwnd(self) -> Optional[int]:

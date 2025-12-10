@@ -61,6 +61,10 @@ class TelemetryManager:
         """Background thread to update telemetry data"""
         while not self._stop_event.is_set():
             if self.ir and self.ir.is_initialized:
+                # Update connection status
+                if not self.is_connected:
+                    self.is_connected = True
+                    print("[INFO] iRacing SDK connection established")
                 try:
                     self.ir.freeze_var_buffer_latest()
                     
@@ -83,6 +87,20 @@ class TelemetryManager:
                         'connected': True,
                         'timestamp': time.time(),
                     }
+                    
+                    # Extract session identifiers
+                    try:
+                        self.current_data['session_unique_id'] = self.ir['SessionUniqueID'] if self.ir['SessionUniqueID'] else None
+                    except Exception:
+                        self.current_data['session_unique_id'] = None
+                    try:
+                        self.current_data['session_num'] = self.ir['SessionNum'] if self.ir['SessionNum'] else None
+                    except Exception:
+                        self.current_data['session_num'] = None
+                    try:
+                        self.current_data['session_id'] = self.ir['SessionID'] if self.ir['SessionID'] else None
+                    except Exception:
+                        self.current_data['session_id'] = None
                     
                     try:
                         self.current_data['is_on_track_car'] = bool(self.ir['IsOnTrackCar'])
@@ -133,6 +151,13 @@ class TelemetryManager:
                             
                 except Exception as e:
                     print(f"[WARN] Telemetry update error: {e}")
+            else:
+                # SDK not initialized - connection lost
+                if self.is_connected:
+                    self.is_connected = False
+                    print("[INFO] iRacing SDK connection lost")
+                # Try to reconnect
+                time.sleep(1)
             
             time.sleep(0.016)  # ~60 Hz
     
@@ -156,6 +181,9 @@ class TelemetryManager:
             'lap_current_time': 0,
             'lap_best_time': 0,
             'session_time': 0,
+            'session_unique_id': None,
+            'session_num': None,
+            'session_id': None,
             'connected': False,
             'timestamp': time.time(),
         }

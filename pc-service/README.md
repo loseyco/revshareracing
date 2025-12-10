@@ -1,4 +1,4 @@
-# PC Service - iRacing Commander V4
+# PC Service - Rev Share Racing
 
 **Lightweight Python service for rig operations**
 

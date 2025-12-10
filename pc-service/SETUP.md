@@ -1,6 +1,6 @@
 # PC Service Setup Guide
 
-**Complete setup instructions for iRacing Commander V4 PC Service**
+**Complete setup instructions for Rev Share Racing PC Service**
 
 ---
 

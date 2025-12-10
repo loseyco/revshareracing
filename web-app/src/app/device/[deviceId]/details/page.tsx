@@ -210,6 +210,7 @@ export default function DeviceDetailsPage() {
         if (command) {
           if (command.status === 'completed') {
             clearInterval(pollInterval);
+            setCommandLoading(false); // Re-enable buttons
             setCommandMessage(`✓ ${action} completed successfully`);
             // Force status refresh to get updated state
             setTimeout(() => {
@@ -219,6 +220,7 @@ export default function DeviceDetailsPage() {
             return;
           } else if (command.status === 'failed') {
             clearInterval(pollInterval);
+            setCommandLoading(false); // Re-enable buttons
             setCommandMessage(`✗ ${action} failed: ${command.error_message || 'Unknown error'}`);
             setTimeout(() => setCommandMessage(null), 5000);
             return;
@@ -240,12 +242,14 @@ export default function DeviceDetailsPage() {
         // Final timeout - stop polling
         if (attempts >= finalMaxAttempts) {
           clearInterval(pollInterval);
+          setCommandLoading(false); // Re-enable buttons
           setCommandMessage(`Command ${action} status unknown (may still be processing)`);
           setTimeout(() => setCommandMessage(null), 5000);
         }
       } catch (err) {
         if (attempts >= finalMaxAttempts) {
           clearInterval(pollInterval);
+          setCommandLoading(false); // Re-enable buttons on error
         }
       }
     }, 500); // Poll every 500ms
@@ -355,20 +359,21 @@ export default function DeviceDetailsPage() {
       const commandId = data.command?.id;
       
       if (commandId) {
-        // Poll for command status updates
+        // Poll for command status updates (keep commandLoading true during polling)
         pollCommandStatus(commandId, action);
         setCommandMessage(`Command queued: ${action}`);
+        // Don't set commandLoading to false here - let pollCommandStatus handle it
       } else {
         console.warn(`[queueCommand] No command ID in response:`, data);
         setCommandMessage(`Command queued: ${action}`);
+        setCommandLoading(false); // Re-enable buttons if no command ID
         setTimeout(() => setCommandMessage(null), 3000);
       }
     } catch (err) {
       console.error(`[queueCommand] Exception:`, err);
       const errorMessage = err instanceof Error ? err.message : "Failed to queue command";
       setCommandMessage(errorMessage);
-    } finally {
-      setCommandLoading(false);
+      setCommandLoading(false); // Re-enable buttons on error
     }
   };
 
@@ -490,6 +495,181 @@ export default function DeviceDetailsPage() {
         </div>
 
         <div className="space-y-4">
+          {/* Remote Controls - First section at top */}
+          {deviceInfo.claimed && deviceInfo.ownerUserId === session?.user.id && (
+            <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Remote Controls</h3>
+              
+              {/* iRacing Status Indicator */}
+              {iracingStatus && (
+                <div className={`mb-4 p-4 rounded-lg text-sm border ${
+                  iracingStatus.iracingConnected
+                    ? "bg-green-500/20 text-green-300 border-green-500/30"
+                    : "bg-red-500/20 text-red-300 border-red-500/30"
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full ${
+                        iracingStatus.iracingConnected ? "bg-green-400 animate-pulse" : "bg-red-400"
+                      }`}></div>
+                      <span className="font-medium">
+                        {iracingStatus.iracingConnected 
+                          ? "iRacing Connected"
+                          : "iRacing Not Connected"}
+                      </span>
+                    </div>
+                    {!iracingStatus.iracingConnected && iracingStatus.reason && (
+                      <span className="text-xs text-red-200/80">
+                        {iracingStatus.reason}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Car State - Show even if other telemetry isn't available yet */}
+                  {iracingStatus.iracingConnected && iracingStatus.carState?.inCar !== null && (
+                    <div className="space-y-2 pt-2 border-t border-current/20">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Status:</span>
+                        <span className="font-medium">
+                          {iracingStatus.carState.inCar ? "In Car" : "Out of Car"}
+                          {iracingStatus.telemetry?.inPitStall && " • In Pit"}
+                        </span>
+                      </div>
+                      {iracingStatus.carState.inCar && iracingStatus.carState.engineRunning !== null && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Engine:</span>
+                          <span className="font-medium">
+                            {iracingStatus.carState.engineRunning ? "Running" : "Off"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Telemetry Information - Only show when in car */}
+                  {iracingStatus.iracingConnected && iracingStatus.telemetry && iracingStatus.carState?.inCar === true && (
+                    <div className="space-y-2 pt-2 border-t border-current/20">
+                      
+                      {/* Track and Car */}
+                      {(iracingStatus.telemetry.trackName || iracingStatus.telemetry.carName) && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Track:</span>
+                          <span className="font-medium truncate ml-2">
+                            {iracingStatus.telemetry.trackName || "Unknown"}
+                          </span>
+                        </div>
+                      )}
+                      {iracingStatus.telemetry.carName && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Car:</span>
+                          <span className="font-medium truncate ml-2">
+                            {iracingStatus.telemetry.carName}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Current Lap */}
+                      {iracingStatus.telemetry.currentLap !== null && iracingStatus.telemetry.currentLap > 0 && (
+                        <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-current/10">
+                          <span className="text-slate-400">Current Lap:</span>
+                          <span className="font-medium">
+                            Lap {iracingStatus.telemetry.currentLap}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Show message when out of car */}
+                  {iracingStatus.iracingConnected && iracingStatus.carState?.inCar === false && (
+                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
+                      Out of car - Use "Enter Car" button to get in the car
+                    </div>
+                  )}
+                  
+                  {/* Fallback when connected but no telemetry yet - only show if car state is also unknown */}
+                  {iracingStatus.iracingConnected && !iracingStatus.telemetry && iracingStatus.carState?.inCar === null && (
+                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
+                      Waiting for telemetry data...
+                    </div>
+                  )}
+                  
+                  {/* Show message when we have car state but no other telemetry yet */}
+                  {iracingStatus.iracingConnected && !iracingStatus.telemetry && iracingStatus.carState?.inCar !== null && (
+                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
+                      Telemetry data will appear here when available
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {commandMessage && (
+                <div className={`mb-4 p-3 rounded-lg text-sm ${
+                  commandMessage.includes("queued") 
+                    ? "bg-red-500/20 text-red-300 border border-red-500/30" 
+                    : "bg-red-600/20 text-red-400 border border-red-600/30"
+                }`}>
+                  {commandMessage}
+                </div>
+              )}
+              
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
+                {/* Show Reset Car if in car, Enter Car if not in car */}
+                {iracingStatus?.carState?.inCar === true ? (
+                  <button
+                    onClick={() => queueCommand("reset_car", { grace_period: 0 })}
+                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
+                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                    title={commandLoading ? "Processing command..." : (!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Reset car to pits")}
+                  >
+                    {commandLoading ? "Processing..." : "Reset Car"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => queueCommand("enter_car")}
+                    disabled={commandLoading || !iracingStatus?.canExecuteCommands || !iracingStatus?.iracingConnected}
+                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                    title={commandLoading ? "Processing command..." : (!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Enter car")}
+                  >
+                    {commandLoading ? "Processing..." : "Enter Car"}
+                  </button>
+                )}
+                {/* Only show Ignition button when in car */}
+                {iracingStatus?.carState?.inCar === true && (
+                  <button
+                    onClick={() => queueCommand("ignition")}
+                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
+                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                    title={commandLoading ? "Processing command..." : (!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : 
+                      (iracingStatus?.carState?.engineRunning ? "Turn off ignition" : "Turn on ignition"))}
+                  >
+                    {commandLoading ? "Processing..." : 
+                      (iracingStatus?.carState?.engineRunning ? "Turn Off Ignition" : "Turn On Ignition")}
+                  </button>
+                )}
+                {/* Only show Pit Speed Limiter when in car */}
+                {iracingStatus?.carState?.inCar === true && (
+                  <button
+                    onClick={() => queueCommand("pit_speed_limiter")}
+                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
+                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                    title={commandLoading ? "Processing command..." : (!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Toggle pit speed limiter")}
+                  >
+                    {commandLoading ? "Processing..." : "Pit Speed Limiter"}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-4">
+                Commands are queued and executed by the PC service. Check the Controls Log tab in the PC service GUI to see execution status.
+                {!iracingStatus?.canExecuteCommands && (
+                  <span className="block mt-2 text-yellow-400">
+                    ⚠️ Buttons are disabled because {iracingStatus?.reason || "iRacing is not connected"}.
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
             <h3 className="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Device Information</h3>
             <div className="space-y-3">
@@ -609,181 +789,6 @@ export default function DeviceDetailsPage() {
             </div>
           )}
 
-          {deviceInfo.claimed && deviceInfo.ownerUserId === session?.user.id && (
-            <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
-              <h3 className="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Remote Controls</h3>
-              
-              {/* iRacing Status Indicator */}
-              {iracingStatus && (
-                <div className={`mb-4 p-4 rounded-lg text-sm border ${
-                  iracingStatus.iracingConnected
-                    ? "bg-green-500/20 text-green-300 border-green-500/30"
-                    : "bg-red-500/20 text-red-300 border-red-500/30"
-                }`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full ${
-                        iracingStatus.iracingConnected ? "bg-green-400 animate-pulse" : "bg-red-400"
-                      }`}></div>
-                      <span className="font-medium">
-                        {iracingStatus.iracingConnected 
-                          ? "iRacing Connected"
-                          : "iRacing Not Connected"}
-                      </span>
-                    </div>
-                    {!iracingStatus.iracingConnected && iracingStatus.reason && (
-                      <span className="text-xs text-red-200/80">
-                        {iracingStatus.reason}
-                      </span>
-                    )}
-                  </div>
-                  
-                  {/* Car State - Show even if other telemetry isn't available yet */}
-                  {iracingStatus.iracingConnected && iracingStatus.carState?.inCar !== null && (
-                    <div className="space-y-2 pt-2 border-t border-current/20">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Status:</span>
-                        <span className="font-medium">
-                          {iracingStatus.carState.inCar ? "In Car" : "Out of Car"}
-                          {iracingStatus.telemetry?.inPitStall && " • In Pit"}
-                        </span>
-                      </div>
-                      {iracingStatus.carState.inCar && iracingStatus.carState.engineRunning !== null && (
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Engine:</span>
-                          <span className="font-medium">
-                            {iracingStatus.carState.engineRunning ? "Running" : "Off"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Telemetry Information - Only show when in car */}
-                  {iracingStatus.iracingConnected && iracingStatus.telemetry && iracingStatus.carState?.inCar === true && (
-                    <div className="space-y-2 pt-2 border-t border-current/20">
-                      
-                      {/* Track and Car */}
-                      {(iracingStatus.telemetry.trackName || iracingStatus.telemetry.carName) && (
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Track:</span>
-                          <span className="font-medium truncate ml-2">
-                            {iracingStatus.telemetry.trackName || "Unknown"}
-                          </span>
-                        </div>
-                      )}
-                      {iracingStatus.telemetry.carName && (
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Car:</span>
-                          <span className="font-medium truncate ml-2">
-                            {iracingStatus.telemetry.carName}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {/* Speed and RPM removed - too fast to verify, not needed for control */}
-                      
-                      {/* Current Lap */}
-                      {iracingStatus.telemetry.currentLap !== null && iracingStatus.telemetry.currentLap > 0 && (
-                        <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-current/10">
-                          <span className="text-slate-400">Current Lap:</span>
-                          <span className="font-medium">
-                            Lap {iracingStatus.telemetry.currentLap}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Show message when out of car */}
-                  {iracingStatus.iracingConnected && iracingStatus.carState?.inCar === false && (
-                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
-                      Out of car - Use "Enter Car" button to get in the car
-                    </div>
-                  )}
-                  
-                  {/* Fallback when connected but no telemetry yet - only show if car state is also unknown */}
-                  {iracingStatus.iracingConnected && !iracingStatus.telemetry && iracingStatus.carState?.inCar === null && (
-                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
-                      Waiting for telemetry data...
-                    </div>
-                  )}
-                  
-                  {/* Show message when we have car state but no other telemetry yet */}
-                  {iracingStatus.iracingConnected && !iracingStatus.telemetry && iracingStatus.carState?.inCar !== null && (
-                    <div className="mt-2 pt-2 border-t border-current/20 text-xs text-slate-400">
-                      Telemetry data will appear here when available
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {commandMessage && (
-                <div className={`mb-4 p-3 rounded-lg text-sm ${
-                  commandMessage.includes("queued") 
-                    ? "bg-red-500/20 text-red-300 border border-red-500/30" 
-                    : "bg-red-600/20 text-red-400 border border-red-600/30"
-                }`}>
-                  {commandMessage}
-                </div>
-              )}
-              
-              <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
-                {/* Show Reset Car if in car, Enter Car if not in car */}
-                {iracingStatus?.carState?.inCar === true ? (
-                  <button
-                    onClick={() => queueCommand("reset_car", { grace_period: 0 })}
-                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
-                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Reset car to pits"}
-                  >
-                    {commandLoading ? "..." : "Reset Car"}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => queueCommand("enter_car")}
-                    disabled={commandLoading || !iracingStatus?.canExecuteCommands || !iracingStatus?.iracingConnected}
-                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Enter car"}
-                  >
-                    {commandLoading ? "..." : "Enter Car"}
-                  </button>
-                )}
-                {/* Only show Ignition button when in car */}
-                {iracingStatus?.carState?.inCar === true && (
-                  <button
-                    onClick={() => queueCommand("ignition")}
-                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
-                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : 
-                      (iracingStatus?.carState?.engineRunning ? "Turn off ignition" : "Turn on ignition")}
-                  >
-                    {commandLoading ? "..." : 
-                      (iracingStatus?.carState?.engineRunning ? "Turn Off Ignition" : "Turn On Ignition")}
-                  </button>
-                )}
-                {/* Only show Pit Speed Limiter when in car */}
-                {iracingStatus?.carState?.inCar === true && (
-                  <button
-                    onClick={() => queueCommand("pit_speed_limiter")}
-                    disabled={commandLoading || !iracingStatus?.canExecuteCommands}
-                    className="btn-primary text-xs sm:text-sm py-2 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Toggle pit speed limiter"}
-                  >
-                    {commandLoading ? "..." : "Pit Speed Limiter"}
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 mt-4">
-                Commands are queued and executed by the PC service. Check the Controls Log tab in the PC service GUI to see execution status.
-                {!iracingStatus?.canExecuteCommands && (
-                  <span className="block mt-2 text-yellow-400">
-                    ⚠️ Buttons are disabled because {iracingStatus?.reason || "iRacing is not connected"}.
-                  </span>
-                )}
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </section>

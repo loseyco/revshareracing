@@ -1,6 +1,6 @@
 # Project Structure
 
-**Complete directory structure for GridPass Commander V4**
+**Complete directory structure for Rev Share Racing**
 
 ---
 

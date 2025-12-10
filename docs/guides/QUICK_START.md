@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-**Get GridPass Commander V4 running in minutes**
+**Get Rev Share Racing running in minutes**
 
 ---
 

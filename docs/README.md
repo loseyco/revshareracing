@@ -1,6 +1,6 @@
 # Documentation Hub
 
-**Central location for all GridPass Commander V4 documentation**
+**Central location for all Rev Share Racing documentation**
 
 ---
 

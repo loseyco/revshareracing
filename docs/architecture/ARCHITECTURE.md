@@ -1,4 +1,4 @@
-# GridPass Commander V4 - Architecture
+# Rev Share Racing - Architecture
 
 **Version:** 4.0.0  
 **Date:** January 2025  
@@ -8,7 +8,7 @@
 
 ## 🎯 **Overview**
 
-GridPass Commander V4 uses a clean, separated architecture with two main components:
+Rev Share Racing uses a clean, separated architecture with two main components:
 
 1. **PC Service** - Runs on rig computers
 2. **Web Application** - Hosted on Vercel

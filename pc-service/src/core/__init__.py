@@ -1,5 +1,5 @@
 """
-iRacing Commander V4 - Core Modules
+Rev Share Racing - Core Modules
 """
 
 from .device import DeviceManager, get_manager as get_device_manager

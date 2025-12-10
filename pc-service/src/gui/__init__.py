@@ -1,8 +1,8 @@
 """
-iRacing Commander V4 - GUI Module
+Rev Share Racing - GUI Module
 """
 
-from .main import create_gui, GridPassGUI
+from .main import create_gui, RevShareRacingGUI
 
-__all__ = ['create_gui', 'GridPassGUI']
+__all__ = ['create_gui', 'RevShareRacingGUI']
 

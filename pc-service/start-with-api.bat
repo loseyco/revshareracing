@@ -1,5 +1,5 @@
 @echo off
-REM iRacing Commander V4 - PC Service Launcher (with API server)
+REM Rev Share Racing - PC Service Launcher (with API server)
 REM Runs the service with the --api flag enabled
 
 cd /d "%~dp0"

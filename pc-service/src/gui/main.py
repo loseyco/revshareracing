@@ -1,5 +1,5 @@
 """
-Simplified GUI for the iRacing Commander PC Service.
+Simplified GUI for Rev Share Racing PC Service.
 All account and rig management is handled via the web portal; this window
 focuses on local status, telemetry health, and quick access to the portal.
 """
@@ -18,12 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from core import device  # noqa: E402
 
 
-class GridPassGUI:
+class RevShareRacingGUI:
     """Minimal control panel for monitoring the local PC service."""
 
     def __init__(self, root):
         self.root = root
-        self.root.title("iRacing Commander - PC Service")
+        self.root.title("Rev Share Racing - PC Service")
         self.root.geometry("880x640")
         self.root.minsize(760, 520)
 
@@ -106,7 +106,7 @@ class GridPassGUI:
 
         title = tk.Label(
             header,
-            text="iRacing Commander - PC Service",
+            text="Rev Share Racing - PC Service",
             font=self.fonts['title'],
             fg=self.colors['text'],
             bg=self.colors['panel'],
@@ -584,7 +584,7 @@ class GridPassGUI:
     # Helpers
     # ------------------------------------------------------------------ #
     def open_portal(self):
-        """Open the device portal in the default browser."""
+        """Open the device portal or claim page in the default browser."""
         device_id = self.device_info.get("device_id")
         claimed = bool(self.device_info.get("claimed"))
         claim_code = self.device_info.get("claim_code")
@@ -593,15 +593,16 @@ class GridPassGUI:
             self.log("[WARN] Device ID unavailable. Please wait for device sync.")
             return
 
-        # Use the new device-specific claim URL format
         from core.device import DEVICE_PORTAL_BASE_URL
-        final_url = f"{DEVICE_PORTAL_BASE_URL}/{device_id}"
         
-        # Add claim code to URL if available and device is unclaimed
+        # If device is unclaimed and we have a claim code, go to claim page
         if not claimed and claim_code:
-            final_url = f"{final_url}?claimCode={claim_code}"
+            final_url = f"{DEVICE_PORTAL_BASE_URL}/{device_id}/claim?claimCode={claim_code}"
+        else:
+            # Device is claimed, go to device management page
+            final_url = f"{DEVICE_PORTAL_BASE_URL}/{device_id}"
 
-        self.log(f"[*] Opening portal: {final_url}")
+        self.log(f"[*] Opening: {final_url}")
         webbrowser.open(final_url)
 
     def _update_portal_button_text(self):
@@ -716,7 +717,7 @@ class GridPassGUI:
 def create_gui():
     """Factory used by the service entrypoint."""
     root = tk.Tk()
-    app = GridPassGUI(root)
+    app = RevShareRacingGUI(root)
     return root, app
 
 
