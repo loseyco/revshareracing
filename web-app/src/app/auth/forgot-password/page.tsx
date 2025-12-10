@@ -27,6 +27,9 @@ function ForgotPasswordFormContent() {
       const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL || "https://revshareracing.com";
       const redirectTo = `${siteUrl}/auth/reset-password`;
       
+      // Debug: log the redirect URL (remove in production if needed)
+      console.log("Password reset redirect URL:", redirectTo);
+      
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo,
       });
