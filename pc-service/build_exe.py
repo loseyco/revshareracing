@@ -46,9 +46,8 @@ args = [
     'start.py',  # Main script
     '--name=RevShareRacing',  # Name of executable
     '--onefile',  # Create a single executable file (all dependencies bundled)
-    # Note: Console window is kept visible for user feedback and debugging
-    # Remove '--console' or add '--windowed' if you want to hide the console
-    '--console',  # Show console window (users can see status/logs)
+    # Hide console window - runs in background
+    '--windowed',  # Hide console window (no console window when running)
     # Don't use --clean since we cleaned manually and it causes permission errors
     '--noconfirm',  # Overwrite output directory without asking
     

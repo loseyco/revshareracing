@@ -22,16 +22,29 @@ def setup_logging():
         class Logger:
             def __init__(self, log_file):
                 self.log_file = log_file
-                self.terminal = sys.stdout
+                # In windowed mode, sys.stdout might be None, so handle it gracefully
+                self.terminal = sys.stdout if sys.stdout is not None else None
                 self.log = open(log_file, 'w', encoding='utf-8')
             
             def write(self, message):
-                self.terminal.write(message)
+                # Only write to terminal if it exists (not None)
+                if self.terminal is not None:
+                    try:
+                        self.terminal.write(message)
+                    except (AttributeError, OSError):
+                        # Terminal might not be available in windowed mode
+                        pass
+                # Always write to log file
                 self.log.write(message)
                 self.log.flush()
             
             def flush(self):
-                self.terminal.flush()
+                # Only flush terminal if it exists
+                if self.terminal is not None:
+                    try:
+                        self.terminal.flush()
+                    except (AttributeError, OSError):
+                        pass
                 self.log.flush()
         
         sys.stdout = Logger(log_file)
