@@ -109,7 +109,10 @@ class RigService:
             if self.device_portal_url:
                 print(f"[*] Manage this rig at: {self.device_portal_url}")
             if not self.claimed and self.claim_code:
-                print(f"[*] Claim code for this rig: {self.claim_code}")
+                # Output claim URL with claim code for easy clicking
+                claim_url = f"{self.device_portal_url}/claim?claimCode={self.claim_code}"
+                print(f"[*] Claim this rig: {claim_url}")
+                print(f"[*] (Or use claim code: {self.claim_code})")
         else:
             print("[!] Unable to determine device ID. Regeneration will be attempted on next start.")
     
