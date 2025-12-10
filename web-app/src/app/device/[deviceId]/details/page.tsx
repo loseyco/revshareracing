@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
@@ -54,6 +54,12 @@ export default function DeviceDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [timedSessionActive, setTimedSessionActive] = useState(false);
+  const [timedSessionRemaining, setTimedSessionRemaining] = useState<number | null>(null);
+  const [selectedSessionMinutes, setSelectedSessionMinutes] = useState<number>(3); // Default 3 minutes
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const [sessionDuration, setSessionDuration] = useState<number | null>(null);
+  const timedSessionIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [iracingStatus, setIracingStatus] = useState<{
     iracingConnected: boolean;
     canExecuteCommands: boolean;
@@ -83,6 +89,83 @@ export default function DeviceDetailsPage() {
       fetchLapStats();
       fetchIracingStatus(); // Initial fetch
       
+      // Check for active timed session in localStorage
+      const restoreTimedSession = () => {
+        const sessionKey = `timed_session_${deviceId}`;
+        const savedSession = localStorage.getItem(sessionKey);
+        if (savedSession) {
+          try {
+            const sessionData = JSON.parse(savedSession);
+            const { startTime, duration } = sessionData;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const remaining = duration - elapsed;
+            
+            if (remaining > 0) {
+              // Session is still active
+              setTimedSessionActive(true);
+              setTimedSessionRemaining(remaining);
+              setSessionStartTime(startTime);
+              setSessionDuration(duration);
+              
+              // Restart the countdown timer
+              const interval = setInterval(() => {
+                setTimedSessionRemaining((prev) => {
+                  if (prev === null || prev <= 1) {
+                    clearInterval(interval);
+                    timedSessionIntervalRef.current = null;
+                    localStorage.removeItem(sessionKey);
+                    // Clear from database
+                    fetch(`/api/device/${deviceId}/timed-session`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sessionState: null })
+                    }).catch(console.error);
+                    // Timer expired - queue reset_car command
+                    queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                      setTimedSessionActive(false);
+                      setTimedSessionRemaining(null);
+                      setSessionStartTime(null);
+                      setSessionDuration(null);
+                      setCommandMessage("Timed session completed. Car reset.");
+                      setTimeout(() => setCommandMessage(null), 5000);
+                    }).catch((err) => {
+                      console.error("Error resetting car after timed session:", err);
+                      setTimedSessionActive(false);
+                      setTimedSessionRemaining(null);
+                      setSessionStartTime(null);
+                      setSessionDuration(null);
+                      setCommandMessage("Timed session completed but failed to reset car.");
+                      setTimeout(() => setCommandMessage(null), 5000);
+                    });
+                    return 0;
+                  }
+                  return prev - 1;
+                });
+              }, 1000);
+              
+              timedSessionIntervalRef.current = interval;
+              return true; // Session restored
+            } else {
+              // Session expired while page was closed
+              localStorage.removeItem(sessionKey);
+              // Queue reset_car command if it hasn't been queued yet
+              queueCommand("reset_car", { grace_period: 0 }).catch((err) => {
+                console.error("Error resetting car after expired session:", err);
+              });
+              return false;
+            }
+          } catch (err) {
+            console.error("Error parsing saved session:", err);
+            localStorage.removeItem(sessionKey);
+            return false;
+          }
+        }
+        return false;
+      };
+      
+      // Try to restore from localStorage first (for quick restore)
+      restoreTimedSession();
+      
       // Poll for lap stats updates (every 10 seconds) to catch new laps
       const lapStatsInterval = setInterval(() => {
         fetchLapStats();
@@ -90,9 +173,128 @@ export default function DeviceDetailsPage() {
       
       // Subscribe to real-time updates for this device
       let fallbackInterval: NodeJS.Timeout | null = null;
+      let sessionSyncInterval: NodeJS.Timeout | null = null;
+      
+      // Function to sync timed session state from database
+      const syncTimedSessionFromDB = async () => {
+        try {
+          const response = await fetch(`/api/device/${deviceId}/timed-session?_t=${Date.now()}`);
+          if (response.ok) {
+            const data = await response.json();
+            const sessionState = data.sessionState;
+            
+            console.log('[syncTimedSessionFromDB] Fetched session state:', sessionState);
+            console.log('[syncTimedSessionFromDB] Current local state - active:', timedSessionActive, 'remaining:', timedSessionRemaining);
+            
+            // Check if session was cancelled (null or not active)
+            if (!sessionState || sessionState === null || !sessionState.active) {
+              // Session was cancelled or doesn't exist - clear local state
+              if (timedSessionActive) {
+                console.log('[syncTimedSessionFromDB] Session cancelled in database, clearing local state');
+                if (timedSessionIntervalRef.current) {
+                  clearInterval(timedSessionIntervalRef.current);
+                  timedSessionIntervalRef.current = null;
+                }
+                setTimedSessionActive(false);
+                setTimedSessionRemaining(null);
+                setSessionStartTime(null);
+                setSessionDuration(null);
+                // Clear localStorage too
+                const sessionKey = `timed_session_${deviceId}`;
+                localStorage.removeItem(sessionKey);
+                setCommandMessage("Timed session was cancelled.");
+                setTimeout(() => setCommandMessage(null), 3000);
+              }
+              return; // Exit early if no active session
+            }
+            
+            // Session is active - sync the timer
+            if (sessionState.active) {
+              const { startTime, duration } = sessionState;
+              const elapsed = Math.floor((Date.now() - startTime) / 1000);
+              const remaining = duration - elapsed;
+              
+              if (remaining > 0) {
+                // Update local state if different
+                if (!timedSessionActive || Math.abs((timedSessionRemaining || 0) - remaining) > 2) {
+                  console.log(`[syncTimedSessionFromDB] Syncing timer: ${remaining}s remaining`);
+                  setTimedSessionActive(true);
+                  setTimedSessionRemaining(remaining);
+                  setSessionStartTime(startTime);
+                  setSessionDuration(duration);
+                  
+                  // Restart timer if not already running or if time is significantly different
+                  if (timedSessionIntervalRef.current) {
+                    clearInterval(timedSessionIntervalRef.current);
+                  }
+                  
+                  const interval = setInterval(() => {
+                    setTimedSessionRemaining((prev) => {
+                      if (prev === null || prev <= 1) {
+                        clearInterval(interval);
+                        timedSessionIntervalRef.current = null;
+                        // Timer expired - clear database state
+                        fetch(`/api/device/${deviceId}/timed-session`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ sessionState: null })
+                        }).catch(console.error);
+                        queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                          setTimedSessionActive(false);
+                          setTimedSessionRemaining(null);
+                          setSessionStartTime(null);
+                          setSessionDuration(null);
+                          setCommandMessage("Timed session completed. Car reset.");
+                          setTimeout(() => setCommandMessage(null), 5000);
+                        }).catch((err) => {
+                          console.error("Error resetting car after timed session:", err);
+                          setTimedSessionActive(false);
+                          setTimedSessionRemaining(null);
+                          setSessionStartTime(null);
+                          setSessionDuration(null);
+                        });
+                        return 0;
+                      }
+                      return prev - 1;
+                    });
+                  }, 1000);
+                  
+                  timedSessionIntervalRef.current = interval;
+                }
+              } else {
+                // Session expired
+                console.log('[syncTimedSessionFromDB] Session expired');
+                if (timedSessionActive) {
+                  setTimedSessionActive(false);
+                  setTimedSessionRemaining(null);
+                  setSessionStartTime(null);
+                  setSessionDuration(null);
+                  if (timedSessionIntervalRef.current) {
+                    clearInterval(timedSessionIntervalRef.current);
+                    timedSessionIntervalRef.current = null;
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error syncing timed session from database:", err);
+        }
+      };
+      
+      // Initial sync from database (after a short delay to allow page to load)
+      setTimeout(() => {
+        syncTimedSessionFromDB();
+      }, 500);
+      
+      // Real-time subscription is primary method - polling is just a safety net
+      // Poll less frequently (every 10 seconds) since real-time should handle most updates
+      sessionSyncInterval = setInterval(() => {
+        syncTimedSessionFromDB();
+      }, 10000);
       
       const channel = supabase
-        .channel(`device:${deviceId}`)
+        .channel(`device:${deviceId}-timed-session`)
         .on(
           'postgres_changes',
           {
@@ -102,9 +304,91 @@ export default function DeviceDetailsPage() {
             filter: `device_id=eq.${deviceId}`,
           },
           (payload) => {
-            // Device data changed - fetch updated status immediately
-            console.log('Device data updated via Realtime:', payload);
+            // Device data changed - this fires when timed_session_state is updated
+            console.log('🔔 Real-time update received for device:', deviceId);
+            console.log('Realtime payload:', payload);
+            console.log('New timed_session_state:', payload.new?.timed_session_state);
+            
             fetchIracingStatus();
+            
+            // Sync timed session state immediately - real-time is instant
+            // Check the payload first to see if timed_session_state changed
+            const newSessionState = payload.new?.timed_session_state;
+            const oldSessionState = payload.old?.timed_session_state;
+            
+            if (JSON.stringify(newSessionState) !== JSON.stringify(oldSessionState)) {
+              console.log('⏱️ Timed session state changed via real-time, syncing...');
+              // Use the data from the payload directly for instant update
+              if (!newSessionState || newSessionState === null || !newSessionState.active) {
+                // Session was cancelled
+                console.log('❌ Session cancelled via real-time');
+                if (timedSessionIntervalRef.current) {
+                  clearInterval(timedSessionIntervalRef.current);
+                  timedSessionIntervalRef.current = null;
+                }
+                setTimedSessionActive(false);
+                setTimedSessionRemaining(null);
+                setSessionStartTime(null);
+                setSessionDuration(null);
+                const sessionKey = `timed_session_${deviceId}`;
+                localStorage.removeItem(sessionKey);
+                setCommandMessage("Timed session was cancelled.");
+                setTimeout(() => setCommandMessage(null), 3000);
+              } else {
+                // Session is active - sync the timer
+                const { startTime, duration } = newSessionState;
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const remaining = duration - elapsed;
+                if (remaining > 0) {
+                  console.log(`✅ Session active via real-time, ${remaining}s remaining`);
+                  setTimedSessionActive(true);
+                  setTimedSessionRemaining(remaining);
+                  setSessionStartTime(startTime);
+                  setSessionDuration(duration);
+                  
+                  if (timedSessionIntervalRef.current) {
+                    clearInterval(timedSessionIntervalRef.current);
+                  }
+                  
+                  const interval = setInterval(() => {
+                    setTimedSessionRemaining((prev) => {
+                      if (prev === null || prev <= 1) {
+                        clearInterval(interval);
+                        timedSessionIntervalRef.current = null;
+                        fetch(`/api/device/${deviceId}/timed-session`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ sessionState: null })
+                        }).catch(console.error);
+                        queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                          setTimedSessionActive(false);
+                          setTimedSessionRemaining(null);
+                          setSessionStartTime(null);
+                          setSessionDuration(null);
+                          setCommandMessage("Timed session completed. Car reset.");
+                          setTimeout(() => setCommandMessage(null), 5000);
+                        }).catch((err) => {
+                          console.error("Error resetting car after timed session:", err);
+                          setTimedSessionActive(false);
+                          setTimedSessionRemaining(null);
+                          setSessionStartTime(null);
+                          setSessionDuration(null);
+                        });
+                        return 0;
+                      }
+                      return prev - 1;
+                    });
+                  }, 1000);
+                  
+                  timedSessionIntervalRef.current = interval;
+                }
+              }
+            } else {
+              // Timed session state didn't change, but other device data did - still sync to be safe
+              setTimeout(() => {
+                syncTimedSessionFromDB();
+              }, 100);
+            }
           }
         )
         .on(
@@ -138,6 +422,15 @@ export default function DeviceDetailsPage() {
         clearInterval(lapStatsInterval);
         if (fallbackInterval) {
           clearInterval(fallbackInterval);
+        }
+        // Clean up timed session interval
+        if (timedSessionIntervalRef.current) {
+          clearInterval(timedSessionIntervalRef.current);
+          timedSessionIntervalRef.current = null;
+        }
+        // Clean up session sync interval
+        if (sessionSyncInterval) {
+          clearInterval(sessionSyncInterval);
         }
       };
     }
@@ -377,6 +670,241 @@ export default function DeviceDetailsPage() {
     }
   };
 
+  const startTimedSession = async () => {
+    if (!deviceInfo || !deviceInfo.claimed) {
+      setCommandMessage("Device must be claimed before starting a timed session");
+      return;
+    }
+
+    if (!iracingStatus?.iracingConnected || !iracingStatus?.canExecuteCommands) {
+      setCommandMessage("iRacing must be connected to start a timed session");
+      return;
+    }
+
+    if (timedSessionActive) {
+      setCommandMessage("A timed session is already active");
+      return;
+    }
+
+    setCommandLoading(true);
+    setCommandMessage("Starting timed session...");
+
+    try {
+      const durationSeconds = selectedSessionMinutes * 60;
+      let alreadyInCar = iracingStatus.carState?.inCar === true;
+      
+      // Step 1: Only enter car if not already in car
+      if (!alreadyInCar) {
+        console.log(`[startTimedSession] Not in car, queuing enter_car command`);
+        setCommandMessage("Entering car...");
+        
+        const enterCarResponse = await fetch(`/api/device/${deviceId}/commands`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "owner",
+            action: "enter_car",
+            params: {
+              timed_session: true,
+              session_duration_seconds: durationSeconds
+            }
+          })
+        });
+
+        if (!enterCarResponse.ok) {
+          const errorData = await enterCarResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || errorData.details || "Failed to queue enter_car command");
+        }
+
+        const enterCarData = await enterCarResponse.json();
+        const enterCarCommandId = enterCarData.command?.id;
+
+        if (!enterCarCommandId) {
+          throw new Error("Failed to get command ID for enter_car");
+        }
+
+        // Step 2: Wait for enter_car to complete (with timeout)
+        let enterCarCompleted = false;
+        let attempts = 0;
+        const maxAttempts = 40; // 20 seconds max wait
+
+        const checkEnterCarStatus = async (): Promise<boolean> => {
+          return new Promise((resolve) => {
+            const checkInterval = setInterval(async () => {
+              attempts++;
+              try {
+                const response = await fetch(`/api/device/${deviceId}/commands`);
+                const data = await response.json();
+                const command = data.commands?.find((cmd: any) => cmd.id === enterCarCommandId);
+
+                if (command) {
+                  if (command.status === 'completed') {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                    return;
+                  } else if (command.status === 'failed') {
+                    clearInterval(checkInterval);
+                    resolve(false);
+                    return;
+                  }
+                }
+
+                if (attempts >= maxAttempts) {
+                  clearInterval(checkInterval);
+                  // Continue anyway - enter_car might still be processing
+                  resolve(true);
+                  return;
+                }
+              } catch (err) {
+                console.error("Error checking enter_car status:", err);
+                if (attempts >= maxAttempts) {
+                  clearInterval(checkInterval);
+                  resolve(true); // Continue anyway
+                  return;
+                }
+              }
+            }, 500);
+          });
+        };
+
+        enterCarCompleted = await checkEnterCarStatus();
+
+        if (!enterCarCompleted) {
+          setCommandMessage("Failed to enter car. Timed session cancelled.");
+          setCommandLoading(false);
+          return;
+        }
+        
+        // Refresh status to confirm we're in car
+        await fetchIracingStatus();
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a moment for status to update
+      } else {
+        console.log(`[startTimedSession] Already in car, skipping enter_car`);
+        setCommandMessage("Already in car, starting timer...");
+      }
+
+      // Step 3: Start the timer immediately
+      const startTime = Date.now();
+      
+      // Save to database for multi-device sync
+      const sessionState = {
+        active: true,
+        startTime,
+        duration: durationSeconds
+      };
+      
+      const sessionResponse = await fetch(`/api/device/${deviceId}/timed-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionState })
+      });
+      
+      if (!sessionResponse.ok) {
+        console.error("Failed to save timed session state to database");
+      }
+      
+      // Also save to localStorage for backup
+      const sessionKey = `timed_session_${deviceId}`;
+      localStorage.setItem(sessionKey, JSON.stringify({
+        startTime,
+        duration: durationSeconds
+      }));
+      
+      setTimedSessionActive(true);
+      setTimedSessionRemaining(durationSeconds);
+      setSessionStartTime(startTime);
+      setSessionDuration(durationSeconds);
+      setCommandLoading(false);
+      setCommandMessage(`Timed session started! ${selectedSessionMinutes} minute${selectedSessionMinutes !== 1 ? 's' : ''} remaining`);
+
+      // Step 5: Countdown timer
+      const interval = setInterval(() => {
+        setTimedSessionRemaining((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            timedSessionIntervalRef.current = null;
+            localStorage.removeItem(sessionKey);
+            // Clear from database
+            fetch(`/api/device/${deviceId}/timed-session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionState: null })
+            }).catch(console.error);
+            // Timer expired - queue reset_car command
+            queueCommand("reset_car", { grace_period: 0 }).then(() => {
+              setTimedSessionActive(false);
+              setTimedSessionRemaining(null);
+              setSessionStartTime(null);
+              setSessionDuration(null);
+              setCommandMessage("Timed session completed. Car reset.");
+              setTimeout(() => setCommandMessage(null), 5000);
+            }).catch((err) => {
+              console.error("Error resetting car after timed session:", err);
+              setTimedSessionActive(false);
+              setTimedSessionRemaining(null);
+              setSessionStartTime(null);
+              setSessionDuration(null);
+              setCommandMessage("Timed session completed but failed to reset car.");
+              setTimeout(() => setCommandMessage(null), 5000);
+            });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      timedSessionIntervalRef.current = interval;
+
+    } catch (err) {
+      console.error(`[startTimedSession] Exception:`, err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to start timed session";
+      setCommandMessage(errorMessage);
+      setCommandLoading(false);
+      setTimedSessionActive(false);
+      setTimedSessionRemaining(null);
+    }
+  };
+
+  const cancelTimedSession = async () => {
+    if (timedSessionIntervalRef.current) {
+      clearInterval(timedSessionIntervalRef.current);
+      timedSessionIntervalRef.current = null;
+    }
+    
+    // Clear local state immediately
+    setTimedSessionActive(false);
+    setTimedSessionRemaining(null);
+    setSessionStartTime(null);
+    setSessionDuration(null);
+    
+    // Clear from database (this will trigger real-time update on other devices)
+    try {
+      const response = await fetch(`/api/device/${deviceId}/timed-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionState: null })
+      });
+      if (!response.ok) {
+        console.error("Failed to clear timed session from database");
+      }
+    } catch (err) {
+      console.error("Error clearing timed session from database:", err);
+    }
+    
+    // Remove from localStorage
+    const sessionKey = `timed_session_${deviceId}`;
+    localStorage.removeItem(sessionKey);
+    
+    setCommandMessage("Timed session cancelled.");
+    setTimeout(() => setCommandMessage(null), 3000);
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+  };
+
   if (sessionLoading || loading) {
     return (
       <section className="space-y-4 sm:space-y-6 animate-fade-in w-full px-3 sm:px-4 md:px-6">
@@ -612,6 +1140,63 @@ export default function DeviceDetailsPage() {
                   {commandMessage}
                 </div>
               )}
+
+              {/* Timed Session Section */}
+              <div className="mb-4 p-4 rounded-lg bg-slate-900/50 border border-slate-700/50">
+                <h4 className="text-xs font-semibold text-slate-300 mb-3 uppercase tracking-wider">Timed Session</h4>
+                
+                {timedSessionActive && timedSessionRemaining !== null ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-400">Time Remaining:</span>
+                      <span className="text-2xl font-bold text-red-400 font-mono">
+                        {formatTime(timedSessionRemaining)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={cancelTimedSession}
+                      className="btn-secondary text-xs sm:text-sm py-2 px-3 w-full"
+                    >
+                      Cancel Session
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="session-time" className="text-sm text-slate-400 whitespace-nowrap">
+                        Session Duration (minutes):
+                      </label>
+                      <input
+                        id="session-time"
+                        type="number"
+                        min="1"
+                        max="120"
+                        value={selectedSessionMinutes}
+                        onChange={(e) => {
+                          const value = Number(e.target.value);
+                          if (value >= 1 && value <= 120) {
+                            setSelectedSessionMinutes(value);
+                          }
+                        }}
+                        disabled={commandLoading || timedSessionActive}
+                        className="input text-sm flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        placeholder="3"
+                      />
+                    </div>
+                    <button
+                      onClick={startTimedSession}
+                      disabled={commandLoading || timedSessionActive || !iracingStatus?.iracingConnected || !iracingStatus?.canExecuteCommands}
+                      className="btn-primary text-xs sm:text-sm py-2 px-3 w-full disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                      title={commandLoading ? "Processing..." : (!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "iRacing not connected" : "Start timed driving session")}
+                    >
+                      {commandLoading ? "Starting..." : "Drive"}
+                    </button>
+                    <p className="text-xs text-slate-500">
+                      Automatically enters car, runs timer, then resets car when time expires.
+                    </p>
+                  </div>
+                )}
+              </div>
               
               <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
                 {/* Show Reset Car if in car, Enter Car if not in car */}
