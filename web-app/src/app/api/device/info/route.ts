@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   const { data: deviceRecord, error: fetchError } = await supabase
     .from("irc_devices")
-    .select("device_id, device_name, claim_code, status, claimed, owner_user_id, location, local_ip, public_ip, last_seen, updated_at")
+    .select("device_id, device_name, claim_code, status, claimed, owner_user_id, location, local_ip, public_ip, last_seen, updated_at, latitude, longitude, address, display_address, city, region, country, postal_code")
     .eq("device_id", deviceId)
     .limit(1)
     .maybeSingle();
@@ -43,6 +43,14 @@ export async function GET(request: Request) {
     localIp?: string;
     publicIp?: string;
     lastSeen?: string;
+    latitude?: number;
+    longitude?: number;
+    address?: string;
+    displayAddress?: string;
+    city?: string;
+    region?: string;
+    country?: string;
+    postalCode?: string;
   } = {
     deviceId: deviceRecord.device_id,
     deviceName: deviceRecord.device_name,
@@ -52,7 +60,15 @@ export async function GET(request: Request) {
     location: deviceRecord.location || undefined,
     localIp: deviceRecord.local_ip || undefined,
     publicIp: deviceRecord.public_ip || undefined,
-    lastSeen: deviceRecord.last_seen || deviceRecord.updated_at || undefined
+    lastSeen: deviceRecord.last_seen || deviceRecord.updated_at || undefined,
+    latitude: deviceRecord.latitude || undefined,
+    longitude: deviceRecord.longitude || undefined,
+    address: deviceRecord.address || undefined,
+    displayAddress: deviceRecord.display_address || undefined,
+    city: deviceRecord.city || undefined,
+    region: deviceRecord.region || undefined,
+    country: deviceRecord.country || undefined,
+    postalCode: deviceRecord.postal_code || undefined
   };
 
   if (deviceRecord.status === "unclaimed" && deviceRecord.claim_code) {

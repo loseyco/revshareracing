@@ -8,7 +8,7 @@ import sys
 import time
 import threading
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -72,6 +72,10 @@ class RigService:
         self.metadata_refresh_interval = 60  # seconds
         self._last_heartbeat = 0
         self.heartbeat_interval = 30  # Update last_seen every 30 seconds (just for service health)
+        self._last_ip_update = 0
+        self.ip_update_interval = 300  # Update IP addresses every 5 minutes
+        self._last_geolocation_update = 0
+        self.geolocation_update_interval = 3600  # Update geolocation every hour
         # Store last telemetry values to detect state changes
         self._last_telemetry_values = {}
         self._last_state_update = 0
@@ -518,7 +522,9 @@ class RigService:
         if self.device_portal_url:
             print(f"[*] Manage rig at: {self.device_portal_url}")
         self.refresh_supabase_metadata(force=True)
-        # Send initial heartbeat to mark service as online
+        # Force IP update on startup
+        self._last_ip_update = 0
+        # Send initial heartbeat to mark service as online (will include IP addresses)
         self._update_heartbeat()
         
         # Push initial state if iRacing is already connected
@@ -839,6 +845,54 @@ class RigService:
                 'iracing_connected': iracing_connected,
             }
             
+            # Update IP addresses periodically (every 5 minutes)
+            current_time = time.time()
+            if (current_time - self._last_ip_update) >= self.ip_update_interval:
+                try:
+                    from core import device
+                    device_mgr = device.get_manager()
+                    local_ip = device_mgr.get_local_ip()
+                    public_ip = device_mgr.get_public_ip()
+                    
+                    if local_ip and local_ip != "127.0.0.1":
+                        update_data['local_ip'] = local_ip
+                    if public_ip and public_ip != "Unknown":
+                        update_data['public_ip'] = public_ip
+                    
+                    self._last_ip_update = current_time
+                    print(f"[INFO] IP addresses updated: local={local_ip}, public={public_ip}")
+                except Exception as e:
+                    print(f"[WARN] Failed to update IP addresses: {e}")
+            
+            # Update geolocation periodically (every hour) based on public IP
+            if (current_time - self._last_geolocation_update) >= self.geolocation_update_interval:
+                try:
+                    geolocation = self._get_geolocation_from_ip()
+                    if geolocation:
+                        # Only update if we got valid data
+                        # Note: These columns may not exist in the database yet - that's OK, we'll handle gracefully
+                        if geolocation.get('latitude') and geolocation.get('longitude'):
+                            update_data['latitude'] = geolocation.get('latitude')
+                            update_data['longitude'] = geolocation.get('longitude')
+                        if geolocation.get('city'):
+                            update_data['city'] = geolocation.get('city')
+                        if geolocation.get('region'):
+                            update_data['region'] = geolocation.get('region')
+                        if geolocation.get('country'):
+                            update_data['country'] = geolocation.get('country')
+                        if geolocation.get('postal_code'):
+                            update_data['postal_code'] = geolocation.get('postal_code')
+                        if geolocation.get('address'):
+                            update_data['address'] = geolocation.get('address')
+                        if geolocation.get('display_address'):
+                            update_data['display_address'] = geolocation.get('display_address')
+                        
+                        self._last_geolocation_update = current_time
+                        address_str = geolocation.get('address', 'N/A')
+                        print(f"[INFO] Geolocation updated: {address_str} ({geolocation.get('city', 'N/A')}, {geolocation.get('region', 'N/A')}, {geolocation.get('country', 'N/A')})")
+                except Exception as e:
+                    print(f"[WARN] Failed to update geolocation: {e}")
+            
             result = supabase_service.table('irc_devices')\
                 .update(update_data)\
                 .eq('device_id', self.device_id)\
@@ -847,14 +901,25 @@ class RigService:
             print(f"[INFO] Heartbeat updated: iracing_connected={iracing_connected}, last_seen={now}")
         except Exception as e:
             print(f"[WARN] Failed to update heartbeat: {e}")
-            # If columns don't exist, try without them
-            if 'iracing_connected' in str(e).lower() or 'in_car' in str(e).lower() or 'column' in str(e).lower():
-                print("[INFO] Some columns may not exist, falling back to last_seen only")
+            # If columns don't exist, try without them (graceful degradation)
+            if 'column' in str(e).lower() or 'does not exist' in str(e).lower():
+                print("[INFO] Some columns may not exist, falling back to basic update")
                 try:
                     from datetime import datetime
                     now = datetime.utcnow().isoformat() + 'Z'
+                    # Try with just last_seen and iracing_connected (most basic fields)
+                    basic_update = {
+                        'last_seen': now,
+                        'iracing_connected': iracing_connected,
+                    }
+                    # Only add IPs if they're in update_data (to avoid errors if columns don't exist)
+                    if 'local_ip' in update_data:
+                        basic_update['local_ip'] = update_data.get('local_ip')
+                    if 'public_ip' in update_data:
+                        basic_update['public_ip'] = update_data.get('public_ip')
+                    
                     supabase_service.table('irc_devices')\
-                        .update({'last_seen': now})\
+                        .update(basic_update)\
                         .eq('device_id', self.device_id)\
                         .execute()
                     self._last_heartbeat = time.time()
@@ -1395,6 +1460,116 @@ class RigService:
             except Exception as e:
                 print(f"[WARN] Timed reset error: {e}")
                 time.sleep(5.0)
+    
+    def _get_geolocation_from_ip(self) -> Optional[Dict]:
+        """Get geolocation information from public IP address and reverse geocode to address"""
+        try:
+            from core import device
+            device_mgr = device.get_manager()
+            public_ip = device_mgr.get_public_ip()
+            
+            if not public_ip or public_ip == "Unknown":
+                return None
+            
+            # Step 1: Get lat/lng from IP geolocation
+            # Use ip-api.com (free, no API key required, 45 requests/minute limit)
+            import requests
+            response = requests.get(
+                f'http://ip-api.com/json/{public_ip}?fields=status,message,country,regionName,city,zip,lat,lon',
+                timeout=5
+            )
+            
+            if response.status_code != 200:
+                return None
+                
+            data = response.json()
+            if data.get('status') != 'success':
+                return None
+            
+            lat = data.get('lat')
+            lon = data.get('lon')
+            
+            if not lat or not lon:
+                return None
+            
+            result = {
+                'latitude': lat,
+                'longitude': lon,
+                'city': data.get('city'),
+                'region': data.get('regionName'),
+                'country': data.get('country'),
+                'postal_code': data.get('zip'),
+            }
+            
+            # Step 2: Reverse geocode to get street address
+            # Use OpenStreetMap Nominatim (free, no API key, but requires user-agent)
+            # Rate limit: 1 request/second - we update hourly so we're well within limits
+            try:
+                import time
+                time.sleep(1.1)  # Small delay to respect rate limits
+                reverse_response = requests.get(
+                    f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1',
+                    headers={'User-Agent': 'RevShareRacing-PC-Service/1.0'},
+                    timeout=5
+                )
+                
+                if reverse_response.status_code == 200:
+                    reverse_data = reverse_response.json()
+                    address_data = reverse_data.get('address', {})
+                    
+                    # Build formatted address from components
+                    address_parts = []
+                    
+                    # Street address (house number + road)
+                    house_number = address_data.get('house_number')
+                    road = address_data.get('road')
+                    if house_number and road:
+                        address_parts.append(f"{house_number} {road}")
+                    elif road:
+                        address_parts.append(road)
+                    
+                    # City/Town
+                    city = address_data.get('city') or address_data.get('town') or address_data.get('village')
+                    if city and city != result.get('city'):
+                        address_parts.append(city)
+                    
+                    # State/Region
+                    state = address_data.get('state')
+                    if state and state != result.get('region'):
+                        address_parts.append(state)
+                    
+                    # Postal code
+                    postal = address_data.get('postcode')
+                    if postal and postal != result.get('postal_code'):
+                        result['postal_code'] = postal
+                    
+                    # Country
+                    country = address_data.get('country')
+                    if country:
+                        result['country'] = country
+                    
+                    # Create formatted address string
+                    if address_parts:
+                        result['address'] = ', '.join(address_parts)
+                    else:
+                        # Fallback: use display_name from Nominatim
+                        result['address'] = reverse_data.get('display_name', '').split(',')[0] if reverse_data.get('display_name') else None
+                    
+                    # Also store the full display name for reference
+                    if reverse_data.get('display_name'):
+                        result['display_address'] = reverse_data.get('display_name')
+                    
+                    print(f"[INFO] Reverse geocoded address: {result.get('address', 'N/A')}")
+                else:
+                    print(f"[WARN] Reverse geocoding failed: HTTP {reverse_response.status_code}")
+            except Exception as e:
+                print(f"[WARN] Reverse geocoding failed: {e}")
+                # Continue without address - we still have lat/lng and city/region
+            
+            return result
+        except Exception as e:
+            print(f"[WARN] Geolocation lookup failed: {e}")
+            return None
     
     def stop(self):
         """Stop the service"""

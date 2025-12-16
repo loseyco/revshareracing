@@ -16,6 +16,14 @@ type DeviceInfo = {
   lastSeen?: string;
   claimed?: boolean;
   ownerUserId?: string;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+  displayAddress?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  postalCode?: string;
 };
 
 type LapStats = {
@@ -51,7 +59,9 @@ export default function DeviceDetailsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editLocation, setEditLocation] = useState("");
+  const [editAddress, setEditAddress] = useState("");
   const [saving, setSaving] = useState(false);
+  const [requestingLocation, setRequestingLocation] = useState(false);
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [timedSessionActive, setTimedSessionActive] = useState(false);
@@ -114,14 +124,14 @@ export default function DeviceDetailsPage() {
                     clearInterval(interval);
                     timedSessionIntervalRef.current = null;
                     localStorage.removeItem(sessionKey);
-                    // Clear from database
-                    fetch(`/api/device/${deviceId}/timed-session`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ sessionState: null })
-                    }).catch(console.error);
-                    // Timer expired - queue reset_car command
+                    // Timer expired - queue reset_car command FIRST
                     queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                      // Clear from database AFTER command is queued
+                      fetch(`/api/device/${deviceId}/timed-session`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sessionState: null })
+                      }).catch(console.error);
                       setTimedSessionActive(false);
                       setTimedSessionRemaining(null);
                       setSessionStartTime(null);
@@ -190,7 +200,10 @@ export default function DeviceDetailsPage() {
             if (!sessionState || sessionState === null || !sessionState.active) {
               // Session was cancelled or doesn't exist - clear local state
               if (timedSessionActive) {
-                console.log('[syncTimedSessionFromDB] Session cancelled in database, clearing local state');
+                // Check if session expired naturally (remaining time <= 0) vs was cancelled
+                const isExpired = timedSessionRemaining !== null && timedSessionRemaining <= 0;
+                
+                console.log('[syncTimedSessionFromDB] Session ended in database, clearing local state', isExpired ? '(expired)' : '(cancelled)');
                 if (timedSessionIntervalRef.current) {
                   clearInterval(timedSessionIntervalRef.current);
                   timedSessionIntervalRef.current = null;
@@ -202,8 +215,13 @@ export default function DeviceDetailsPage() {
                 // Clear localStorage too
                 const sessionKey = `timed_session_${deviceId}`;
                 localStorage.removeItem(sessionKey);
-                setCommandMessage("Timed session was cancelled.");
-                setTimeout(() => setCommandMessage(null), 3000);
+                
+                // Only show "cancelled" message if it was actually cancelled (not expired)
+                if (!isExpired) {
+                  setCommandMessage("Timed session was cancelled.");
+                  setTimeout(() => setCommandMessage(null), 3000);
+                }
+                // If expired, the reset command should already be queued, so don't show cancelled message
               }
               return; // Exit early if no active session
             }
@@ -233,13 +251,14 @@ export default function DeviceDetailsPage() {
                       if (prev === null || prev <= 1) {
                         clearInterval(interval);
                         timedSessionIntervalRef.current = null;
-                        // Timer expired - clear database state
-                        fetch(`/api/device/${deviceId}/timed-session`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ sessionState: null })
-                        }).catch(console.error);
+                        // Timer expired - queue reset_car command FIRST
                         queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                          // Clear from database AFTER command is queued
+                          fetch(`/api/device/${deviceId}/timed-session`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionState: null })
+                          }).catch(console.error);
                           setTimedSessionActive(false);
                           setTimedSessionRemaining(null);
                           setSessionStartTime(null);
@@ -320,8 +339,9 @@ export default function DeviceDetailsPage() {
               console.log('⏱️ Timed session state changed via real-time, syncing...');
               // Use the data from the payload directly for instant update
               if (!newSessionState || newSessionState === null || !newSessionState.active) {
-                // Session was cancelled
-                console.log('❌ Session cancelled via real-time');
+                // Session ended - check if expired or cancelled
+                const isExpired = timedSessionRemaining !== null && timedSessionRemaining <= 0;
+                console.log(isExpired ? '⏱️ Session expired via real-time' : '❌ Session cancelled via real-time');
                 if (timedSessionIntervalRef.current) {
                   clearInterval(timedSessionIntervalRef.current);
                   timedSessionIntervalRef.current = null;
@@ -332,8 +352,13 @@ export default function DeviceDetailsPage() {
                 setSessionDuration(null);
                 const sessionKey = `timed_session_${deviceId}`;
                 localStorage.removeItem(sessionKey);
-                setCommandMessage("Timed session was cancelled.");
-                setTimeout(() => setCommandMessage(null), 3000);
+                
+                // Only show "cancelled" if it was actually cancelled (not expired)
+                // If expired, the reset command should already be queued
+                if (!isExpired) {
+                  setCommandMessage("Timed session was cancelled.");
+                  setTimeout(() => setCommandMessage(null), 3000);
+                }
               } else {
                 // Session is active - sync the timer
                 const { startTime, duration } = newSessionState;
@@ -355,12 +380,14 @@ export default function DeviceDetailsPage() {
                       if (prev === null || prev <= 1) {
                         clearInterval(interval);
                         timedSessionIntervalRef.current = null;
-                        fetch(`/api/device/${deviceId}/timed-session`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ sessionState: null })
-                        }).catch(console.error);
+                        // Timer expired - queue reset_car command FIRST
                         queueCommand("reset_car", { grace_period: 0 }).then(() => {
+                          // Clear from database AFTER command is queued
+                          fetch(`/api/device/${deviceId}/timed-session`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionState: null })
+                          }).catch(console.error);
                           setTimedSessionActive(false);
                           setTimedSessionRemaining(null);
                           setSessionStartTime(null);
@@ -453,6 +480,7 @@ export default function DeviceDetailsPage() {
       setDeviceInfo(data);
       setEditName(data.deviceName || "");
       setEditLocation(data.location || "");
+      setEditAddress(data.address || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load device information");
     } finally {
@@ -598,6 +626,7 @@ export default function DeviceDetailsPage() {
           deviceId: deviceInfo.deviceId,
           deviceName: editName.trim() || undefined,
           location: editLocation.trim() || undefined,
+          address: editAddress.trim() || undefined,
           userId: session?.user.id
         })
       });
@@ -824,14 +853,14 @@ export default function DeviceDetailsPage() {
             clearInterval(interval);
             timedSessionIntervalRef.current = null;
             localStorage.removeItem(sessionKey);
-            // Clear from database
-            fetch(`/api/device/${deviceId}/timed-session`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sessionState: null })
-            }).catch(console.error);
-            // Timer expired - queue reset_car command
+            // Timer expired - queue reset_car command FIRST
             queueCommand("reset_car", { grace_period: 0 }).then(() => {
+              // Clear from database AFTER command is queued
+              fetch(`/api/device/${deviceId}/timed-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionState: null })
+              }).catch(console.error);
               setTimedSessionActive(false);
               setTimedSessionRemaining(null);
               setSessionStartTime(null);
@@ -903,6 +932,119 @@ export default function DeviceDetailsPage() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const requestBrowserLocation = async () => {
+    if (!deviceInfo || !deviceInfo.claimed || deviceInfo.ownerUserId !== session?.user.id) {
+      setCommandMessage("You must own this device to update its location");
+      setTimeout(() => setCommandMessage(null), 3000);
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setCommandMessage("Geolocation is not supported by your browser");
+      setTimeout(() => setCommandMessage(null), 3000);
+      return;
+    }
+
+    setRequestingLocation(true);
+    setCommandMessage("Requesting location permission...");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setCommandMessage("Location received! Looking up address...");
+
+        try {
+          // Reverse geocode to get address from coordinates
+          const reverseGeocodeResponse = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            {
+              headers: {
+                'User-Agent': 'RevShareRacing-WebApp/1.0'
+              }
+            }
+          );
+
+          if (!reverseGeocodeResponse.ok) {
+            throw new Error("Failed to reverse geocode location");
+          }
+
+          const reverseData = await reverseGeocodeResponse.json();
+          const addressData = reverseData.address || {};
+          
+          // Build formatted address
+          const addressParts = [];
+          if (addressData.house_number && addressData.road) {
+            addressParts.push(`${addressData.house_number} ${addressData.road}`);
+          } else if (addressData.road) {
+            addressParts.push(addressData.road);
+          }
+          
+          const city = addressData.city || addressData.town || addressData.village;
+          if (city) addressParts.push(city);
+          
+          const state = addressData.state;
+          if (state) addressParts.push(state);
+          
+          const address = addressParts.length > 0 ? addressParts.join(", ") : reverseData.display_name?.split(',')[0] || "";
+
+          // Update device with new location and coordinates
+          const updateResponse = await fetch("/api/device/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              deviceId: deviceInfo.deviceId,
+              address: address || undefined,
+              latitude,
+              longitude,
+              city: city || undefined,
+              region: state || undefined,
+              country: addressData.country || undefined,
+              postalCode: addressData.postcode || undefined,
+              userId: session?.user.id
+            })
+          });
+
+          if (!updateResponse.ok) {
+            const errorData = await updateResponse.json().catch(() => ({}));
+            throw new Error(errorData.error || "Failed to update device location");
+          }
+
+          setCommandMessage("Location updated successfully!");
+          setTimeout(() => setCommandMessage(null), 3000);
+          await fetchDeviceInfo();
+        } catch (error) {
+          console.error("Error updating location:", error);
+          setCommandMessage(error instanceof Error ? error.message : "Failed to update location");
+          setTimeout(() => setCommandMessage(null), 5000);
+        } finally {
+          setRequestingLocation(false);
+        }
+      },
+      (error) => {
+        setRequestingLocation(false);
+        let errorMessage = "Failed to get location";
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location permission denied. Please allow location access in your browser settings.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location information unavailable.";
+            break;
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out.";
+            break;
+        }
+        setCommandMessage(errorMessage);
+        setTimeout(() => setCommandMessage(null), 5000);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
   };
 
   if (sessionLoading || loading) {
@@ -1000,6 +1142,7 @@ export default function DeviceDetailsPage() {
                         setIsEditing(false);
                         setEditName(deviceInfo.deviceName || "");
                         setEditLocation(deviceInfo.location || "");
+                        setEditAddress(deviceInfo.address || "");
                       }}
                       className="btn-secondary text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2"
                     >
@@ -1285,13 +1428,106 @@ export default function DeviceDetailsPage() {
                 </div>
               )}
               {deviceInfo.lastSeen && (
-                <div className="flex items-center justify-between py-2">
+                <div className="flex items-center justify-between py-2 border-b border-slate-800/50">
                   <span className="text-sm text-slate-500">Last Seen</span>
                   <span className="text-sm text-slate-200">{new Date(deviceInfo.lastSeen).toLocaleString()}</span>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Geolocation Information */}
+          {(deviceInfo.address || deviceInfo.latitude || deviceInfo.city || isEditing) && (
+            <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Geolocation</h3>
+                {!isEditing && deviceInfo.claimed && deviceInfo.ownerUserId === session?.user.id && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={requestBrowserLocation}
+                      disabled={requestingLocation}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      title="Use your browser's location (more accurate)"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      {requestingLocation ? "Getting..." : "Use My Location"}
+                    </button>
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="text-xs text-slate-400 hover:text-slate-300"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div className="py-2 border-b border-slate-800/50">
+                  <span className="text-xs text-slate-500 block mb-1">Address</span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                      className="input text-sm w-full mt-1"
+                      placeholder="Enter street address (e.g., 123 Main St, Grayslake, IL)"
+                    />
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-slate-200">{deviceInfo.address || "Not set"}</span>
+                      {deviceInfo.displayAddress && deviceInfo.displayAddress !== deviceInfo.address && (
+                        <span className="text-xs text-slate-400 block mt-1">{deviceInfo.displayAddress}</span>
+                      )}
+                    </>
+                  )}
+                  {isEditing && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Address will be geocoded to get coordinates for the map
+                    </p>
+                  )}
+                </div>
+                {(deviceInfo.city || deviceInfo.region || deviceInfo.country) && (
+                  <div className="flex items-center justify-between py-2 border-b border-slate-800/50">
+                    <span className="text-sm text-slate-500">City/Region</span>
+                    <span className="text-sm font-medium text-slate-200 text-right">
+                      {[deviceInfo.city, deviceInfo.region, deviceInfo.country].filter(Boolean).join(", ") || "Not available"}
+                    </span>
+                  </div>
+                )}
+                {deviceInfo.postalCode && (
+                  <div className="flex items-center justify-between py-2 border-b border-slate-800/50">
+                    <span className="text-sm text-slate-500">Postal Code</span>
+                    <span className="text-sm font-mono text-slate-200">{deviceInfo.postalCode}</span>
+                  </div>
+                )}
+                {deviceInfo.latitude && deviceInfo.longitude && (
+                  <div className="py-2">
+                    <span className="text-xs text-slate-500 block mb-1">Coordinates</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-mono text-slate-200">
+                        {deviceInfo.latitude.toFixed(6)}, {deviceInfo.longitude.toFixed(6)}
+                      </span>
+                      <a
+                        href={`https://www.google.com/maps?q=${deviceInfo.latitude},${deviceInfo.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-red-400 hover:text-red-300 underline flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        View on Map
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
             <h3 className="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Status</h3>
