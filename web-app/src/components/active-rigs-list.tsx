@@ -14,6 +14,9 @@ type ActiveRig = {
   city?: string;
   region?: string;
   country?: string;
+  address?: string;
+  display_address?: string;
+  location?: string;
   queueCount: number;
   activeDriver: {
     email: string;
@@ -133,7 +136,9 @@ export function ActiveRigsList() {
 
       <div className="space-y-3">
         {rigs.map((rig) => {
-          const location = [rig.city, rig.region, rig.country].filter(Boolean).join(", ") || "Unknown Location";
+          // Prefer display_address, then address, then location, then city/region/country combo
+          const location = rig.display_address || rig.address || rig.location || 
+            [rig.city, rig.region, rig.country].filter(Boolean).join(", ") || "Unknown Location";
           const isJoining = joiningQueue === rig.device_id;
 
           return (

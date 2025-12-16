@@ -7,16 +7,16 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseServiceClient();
 
-    // Get all claimed devices that are online and iRacing connected
-    // A device is considered "online" if last_seen is within the last 60 seconds
+    // Get all claimed devices where PC service is online and ready to queue drivers
+    // A device is considered "active" if the PC service is running (last_seen within last 60 seconds)
+    // This means the service is ready to accept drivers in the queue, regardless of whether someone is currently driving
     const now = new Date();
     const sixtySecondsAgo = new Date(now.getTime() - 60 * 1000);
 
     const { data: devices, error: fetchError } = await supabase
       .from("irc_devices")
-      .select("device_id, device_name, claimed, iracing_connected, last_seen, city, region, country")
+      .select("device_id, device_name, claimed, iracing_connected, last_seen, city, region, country, address, display_address, location")
       .eq("claimed", true)
-      .eq("iracing_connected", true)
       .gte("last_seen", sixtySecondsAgo.toISOString())
       .order("device_name", { ascending: true });
 
