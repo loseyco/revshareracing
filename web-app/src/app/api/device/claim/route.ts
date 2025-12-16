@@ -71,23 +71,60 @@ export async function POST(request: Request) {
   }
 
   // Validate userId exists if provided (to avoid foreign key constraint violations)
-  // Use auth.admin API to verify user exists in auth.users
+  // The FK constraint likely references irc_user_profiles, so ensure the profile exists
   if (userId) {
     try {
+      console.log("[claimDevice] Validating userId:", userId);
+      
+      // First verify user exists in auth
       const { data: userData, error: userFetchError } = await supabase.auth.admin.getUserById(userId);
 
       if (userFetchError || !userData?.user) {
         console.error("[claimDevice] userFetchError", userFetchError);
+        console.error("[claimDevice] userFetchError details:", JSON.stringify(userFetchError, null, 2));
         return NextResponse.json(
           { error: "Invalid user. Please sign in again." },
           { status: 400 }
         );
+      }
+      console.log("[claimDevice] User validated successfully:", userData.user.id, userData.user.email);
+      
+      // Check if user profile exists (FK constraint might reference this table)
+      const { data: profile, error: profileError } = await supabase
+        .from("irc_user_profiles")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+      
+      if (profileError && profileError.code !== "PGRST116") {
+        console.error("[claimDevice] profileError", profileError);
+      }
+      
+      // If profile doesn't exist, create it to satisfy FK constraint
+      if (!profile) {
+        console.log("[claimDevice] User profile not found, creating it...");
+        const { error: createError } = await supabase
+          .from("irc_user_profiles")
+          .insert({
+            id: userId,
+            email: userData.user.email,
+            role: "driver"
+          });
+        
+        if (createError) {
+          console.error("[claimDevice] Failed to create user profile:", createError);
+          // Continue anyway - the FK constraint will catch it if needed
+        } else {
+          console.log("[claimDevice] User profile created successfully");
+        }
       }
     } catch (error) {
       // If admin API is not available, skip validation and rely on FK constraint
       // The FK constraint will catch invalid user IDs during the update
       console.warn("[claimDevice] Could not validate user via admin API, relying on FK constraint:", error);
     }
+  } else {
+    console.warn("[claimDevice] No userId provided - device will be claimed without owner");
   }
 
   const updates: Record<string, unknown> = {
@@ -109,10 +146,16 @@ export async function POST(request: Request) {
 
   if (updateError) {
     console.error("[claimDevice] updateError", updateError);
+    console.error("[claimDevice] updateError details:", JSON.stringify(updateError, null, 2));
+    console.error("[claimDevice] Attempted update with userId:", userId);
     // Check if it's a foreign key constraint violation
     const errorMessage = updateError.message || "";
+    const errorCode = updateError.code || "";
     if (errorMessage.toLowerCase().includes("foreign key") || 
-        errorMessage.toLowerCase().includes("violates foreign key constraint")) {
+        errorMessage.toLowerCase().includes("violates foreign key constraint") ||
+        errorCode.includes("23503")) { // PostgreSQL foreign key violation code
+      console.error("[claimDevice] Foreign key constraint violation detected");
+      console.error("[claimDevice] UserId that failed:", userId);
       return NextResponse.json(
         { error: "Invalid user reference. Please sign in again." },
         { status: 400 }
