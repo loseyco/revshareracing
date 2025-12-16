@@ -210,6 +210,11 @@ class DeviceManager:
         claim_code = claim_code or self._generate_claim_code()
         config['claim_code'] = claim_code
         
+        # Only include company_id if it's None or empty string (to avoid foreign key violations)
+        company_id = config.get('company_id')
+        if company_id is not None and company_id == '':
+            company_id = None
+        
         payload = {
             'device_id': device_id,
             'device_name': config.get('device_name') or socket.gethostname(),
@@ -218,7 +223,7 @@ class DeviceManager:
             'status': 'active',  # Use 'active' instead of 'unclaimed' - database constraint requires valid status
             'owner_user_id': None,
             'location': config.get('location'),
-            'company_id': config.get('company_id'),
+            'company_id': company_id,  # Will be None if invalid or empty
             'local_ip': config.get('local_ip') or self.get_local_ip(),
             'public_ip': config.get('public_ip') or self.get_public_ip(),
         }
@@ -229,7 +234,22 @@ class DeviceManager:
             self.apply_remote_metadata(created)
             return created
         except Exception as exc:
-            print(f"[WARN] Failed to create Supabase device record: {exc}")
+            error_msg = str(exc)
+            # If foreign key constraint violation, try without company_id
+            if 'foreign key' in error_msg.lower() or 'violates foreign key' in error_msg.lower():
+                print(f"[WARN] Foreign key constraint violation, retrying without company_id: {exc}")
+                payload['company_id'] = None
+                try:
+                    result = client.table('irc_devices').insert(payload).execute()
+                    created = self._first_row(result) or payload
+                    # Clear invalid company_id from config
+                    config['company_id'] = None
+                    self.apply_remote_metadata(created)
+                    return created
+                except Exception as retry_exc:
+                    print(f"[WARN] Failed to create Supabase device record after retry: {retry_exc}")
+            else:
+                print(f"[WARN] Failed to create Supabase device record: {exc}")
             # Even if Supabase insert fails, persist local config so we retain the claim code.
             self._save_device_config(config)
             return None

@@ -70,6 +70,28 @@ export async function POST(request: Request) {
     );
   }
 
+  // Validate userId exists if provided (to avoid foreign key constraint violations)
+  if (userId) {
+    const { data: userRecord, error: userFetchError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (userFetchError) {
+      console.error("[claimDevice] userFetchError", userFetchError);
+      return NextResponse.json({ error: "Failed to validate user" }, { status: 500 });
+    }
+
+    if (!userRecord) {
+      return NextResponse.json(
+        { error: "Invalid user. Please sign in again." },
+        { status: 400 }
+      );
+    }
+  }
+
   const updates: Record<string, unknown> = {
     claim_code: null,
     claimed: true,
@@ -77,7 +99,7 @@ export async function POST(request: Request) {
     updated_at: new Date().toISOString()
   };
 
-  // Link device to user if authenticated
+  // Link device to user if authenticated and validated
   if (userId) {
     updates.owner_user_id = userId;
   }
@@ -89,6 +111,15 @@ export async function POST(request: Request) {
 
   if (updateError) {
     console.error("[claimDevice] updateError", updateError);
+    // Check if it's a foreign key constraint violation
+    const errorMessage = updateError.message || "";
+    if (errorMessage.toLowerCase().includes("foreign key") || 
+        errorMessage.toLowerCase().includes("violates foreign key constraint")) {
+      return NextResponse.json(
+        { error: "Invalid user reference. Please sign in again." },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
