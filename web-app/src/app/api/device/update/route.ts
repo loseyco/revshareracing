@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createSupabaseServiceClient } from "@/lib/supabase-server";
+import { isSuperAdminEmail, isAdminRole } from "@/lib/admin";
 
 const updateSchema = z.object({
   deviceId: z.string().min(1),
@@ -102,15 +103,41 @@ async function handleUpdate(request: Request) {
     );
   }
 
-  // Verify device is claimed and user owns it
-  if (!deviceRecord.claimed) {
+  // Check if user is super admin
+  let isSuperAdmin = false;
+  if (userId) {
+    try {
+      const { data: userData } = await supabase.auth.admin.getUserById(userId);
+      if (userData?.user?.email) {
+        if (isSuperAdminEmail(userData.user.email)) {
+          isSuperAdmin = true;
+        } else {
+          const { data: profile } = await supabase
+            .from("irc_user_profiles")
+            .select("role")
+            .eq("id", userId)
+            .maybeSingle();
+          const role = profile?.role || "user";
+          if (role === "super_admin" || (role === "admin" && isAdminRole(role))) {
+            isSuperAdmin = true;
+          }
+        }
+      }
+    } catch (err) {
+      // If admin check fails, continue as regular user
+      console.warn("[updateDevice] Admin check failed:", err);
+    }
+  }
+
+  // Verify device is claimed and user owns it (unless super admin)
+  if (!deviceRecord.claimed && !isSuperAdmin) {
     return NextResponse.json(
       { error: "Device must be claimed before it can be updated." },
       { status: 403 }
     );
   }
 
-  if (userId && deviceRecord.owner_user_id !== userId) {
+  if (userId && deviceRecord.owner_user_id !== userId && !isSuperAdmin) {
     return NextResponse.json(
       { error: "You don't have permission to update this device." },
       { status: 403 }

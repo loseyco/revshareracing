@@ -1,17 +1,45 @@
 "use client";
 
+import { useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
+import { RigMap } from "@/components/rig-map";
+import { ActiveRigsList } from "@/components/active-rigs-list";
 
-export default function HomePage() {
-  const { session, loading } = useSupabase();
+function HomePageContent() {
+  const { session, loading, supabase } = useSupabase();
+  const searchParams = useSearchParams();
+
+  // Force refresh session if we came from logout
+  useEffect(() => {
+    const logoutParam = searchParams.get("logout");
+    if (logoutParam) {
+      // Force refresh the session to ensure it's cleared
+      supabase.auth.getSession().then(({ data }) => {
+        // If session still exists, try to clear it
+        if (data.session) {
+          console.log("[HomePage] Session still exists after logout, clearing...");
+          supabase.auth.signOut().then(() => {
+            // Remove the logout parameter from URL
+            window.history.replaceState({}, "", "/");
+            // Force a page reload to clear all state
+            window.location.reload();
+          });
+        } else {
+          // Remove the logout parameter from URL
+          window.history.replaceState({}, "", "/");
+        }
+      });
+    }
+  }, [searchParams, supabase]);
 
   // Direct download link to latest release
   const downloadUrl = "https://github.com/loseyco/revshareracing/releases/download/1.0.0/RevShareRacing.exe";
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 px-4">
+    <div className="flex flex-col items-center min-h-[60vh] space-y-8 px-4 py-8 w-full max-w-7xl mx-auto">
       <div className="text-center space-y-4">
         <h1 className="text-4xl md:text-5xl font-bold text-white gradient-text">Rev Share Racing</h1>
         <p className="text-slate-400 text-lg">Connect your iRacing rig to the cloud</p>
@@ -63,6 +91,31 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* Active Rigs Section */}
+      <div className="w-full">
+        <ActiveRigsList />
+      </div>
+
+      {/* Map Section - Moved to bottom */}
+      <div className="w-full">
+        <RigMap />
+      </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center min-h-[60vh] space-y-8 px-4 py-8 w-full max-w-7xl mx-auto">
+        <div className="flex items-center gap-2 text-slate-400">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-500 border-t-transparent"></div>
+          <span>Loading...</span>
+        </div>
+      </div>
+    }>
+      <HomePageContent />
+    </Suspense>
   );
 }

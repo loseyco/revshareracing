@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase-server";
+import { isSuperAdminEmail, isAdminRole } from "@/lib/admin";
 
 /**
  * GET /api/device/[deviceId]/commands
@@ -117,7 +118,34 @@ export async function POST(
     
     console.log(`[queueCommand] Device found: claimed=${device.claimed}, owner=${device.owner_user_id}`);
 
-    if (!device.claimed) {
+    // Check if user is super admin (optional auth check)
+    let isSuperAdmin = false;
+    const authHeader = request.headers.get("authorization");
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      try {
+        const token = authHeader.substring(7);
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) {
+          if (isSuperAdminEmail(user.email)) {
+            isSuperAdmin = true;
+          } else {
+            const { data: profile } = await supabase
+              .from("irc_user_profiles")
+              .select("role")
+              .eq("id", user.id)
+              .maybeSingle();
+            const role = profile?.role || "user";
+            if (role === "super_admin" || (role === "admin" && isAdminRole(role))) {
+              isSuperAdmin = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[queueCommand] Admin check failed:", err);
+      }
+    }
+
+    if (!device.claimed && !isSuperAdmin) {
       console.error(`[queueCommand] Device not claimed: ${deviceId}`);
       return NextResponse.json(
         { error: "Device must be claimed before queuing commands" },

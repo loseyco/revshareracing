@@ -87,6 +87,7 @@ export async function GET(
     
     // Always return telemetry structure if data is fresh and iRacing is/was connected
     // This allows the webpage to show last known telemetry even if service is temporarily offline
+    // Include speed even if it's 0 (car might be stationary)
     const telemetry = (isDataFresh && iracingConnected) ? {
       speedKph: device.speed_kph !== null && device.speed_kph !== undefined ? device.speed_kph : null,
       rpm: device.rpm !== null && device.rpm !== undefined ? device.rpm : null,
@@ -96,6 +97,16 @@ export async function GET(
       inPitStall: device.in_pit_stall !== null && device.in_pit_stall !== undefined ? device.in_pit_stall : null,
       engineRunning: device.engine_running !== null && device.engine_running !== undefined ? device.engine_running : null,
     } : null;
+    
+    // Debug logging
+    console.log(`[getDeviceStatus] Telemetry:`, {
+      hasTelemetry: !!telemetry,
+      speedKph: telemetry?.speedKph,
+      inCar: inCar,
+      isDataFresh,
+      iracingConnected,
+      speed_kph_from_db: device.speed_kph
+    });
     
     return NextResponse.json({
       iracingConnected: iracingConnected,

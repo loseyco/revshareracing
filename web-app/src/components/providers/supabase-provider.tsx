@@ -21,17 +21,34 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    client.auth.getSession().then(({ data }) => {
-      if (mounted) {
-        setSession(data.session ?? null);
-        setLoading(false);
+    
+    // Initial session load
+    const loadSession = async () => {
+      try {
+        const { data } = await client.auth.getSession();
+        if (mounted) {
+          setSession(data.session ?? null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("[SupabaseProvider] Error loading session:", error);
+        if (mounted) {
+          setSession(null);
+          setLoading(false);
+        }
       }
-    });
+    };
+    
+    loadSession();
 
+    // Listen for auth state changes
     const {
       data: { subscription }
-    } = client.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession ?? null);
+    } = client.auth.onAuthStateChange((event, newSession) => {
+      console.log("[SupabaseProvider] Auth state changed:", event, newSession ? "session exists" : "no session");
+      if (mounted) {
+        setSession(newSession ?? null);
+      }
     });
 
     return () => {

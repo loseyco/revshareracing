@@ -3,8 +3,10 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
+import { checkAdminAccess } from "@/lib/admin";
 
 type DeviceInfo = {
   deviceId: string;
@@ -57,13 +59,20 @@ export default function DeviceDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingGeolocation, setIsEditingGeolocation] = useState(false);
   const [editName, setEditName] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editAddress, setEditAddress] = useState("");
   const [saving, setSaving] = useState(false);
   const [requestingLocation, setRequestingLocation] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [movementStatus, setMovementStatus] = useState<{
+    waiting: boolean;
+    speed: number | null;
+    detected: boolean;
+  } | null>(null);
   const [timedSessionActive, setTimedSessionActive] = useState(false);
   const [timedSessionRemaining, setTimedSessionRemaining] = useState<number | null>(null);
   const [selectedSessionMinutes, setSelectedSessionMinutes] = useState<number>(3); // Default 3 minutes
@@ -88,6 +97,18 @@ export default function DeviceDetailsPage() {
       engineRunning: boolean | null;
     } | null;
   } | null>(null);
+  const [queueData, setQueueData] = useState<{
+    queue: Array<{
+      id: string;
+      user_id: string;
+      position: number;
+      status: string;
+      irc_user_profiles?: { display_name?: string; email?: string } | null;
+    }>;
+    totalWaiting: number;
+    active: { irc_user_profiles?: { display_name?: string; email?: string } | null } | null;
+  } | null>(null);
+  const queuePollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!sessionLoading) {
@@ -98,6 +119,11 @@ export default function DeviceDetailsPage() {
       fetchDeviceInfo();
       fetchLapStats();
       fetchIracingStatus(); // Initial fetch
+      
+      // Poll iRacing status more frequently to detect movement (every 2 seconds)
+      const iracingStatusInterval = setInterval(() => {
+        fetchIracingStatus();
+      }, 2000);
       
       // Check for active timed session in localStorage
       const restoreTimedSession = () => {
@@ -125,19 +151,36 @@ export default function DeviceDetailsPage() {
                     timedSessionIntervalRef.current = null;
                     localStorage.removeItem(sessionKey);
                     // Timer expired - queue reset_car command FIRST
-                    queueCommand("reset_car", { grace_period: 0 }).then(() => {
-                      // Clear from database AFTER command is queued
-                      fetch(`/api/device/${deviceId}/timed-session`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionState: null })
-                      }).catch(console.error);
+                    queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+                      // Mark previous driver's queue entry as completed and clear session state
+                      try {
+                        // Clear timed session state first
+                        await fetch(`/api/device/${deviceId}/timed-session`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ sessionState: null })
+                        }).catch(console.error);
+
+                        // Then mark queue entry as completed
+                        await fetch(`/api/device/${deviceId}/queue/complete`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' }
+                        }).catch(console.error);
+                      } catch (err) {
+                        console.error("Error updating queue after session:", err);
+                      }
+
                       setTimedSessionActive(false);
                       setTimedSessionRemaining(null);
                       setSessionStartTime(null);
                       setSessionDuration(null);
                       setCommandMessage("Timed session completed. Car reset.");
                       setTimeout(() => setCommandMessage(null), 5000);
+
+                      // Check for next driver and start their session
+                      setTimeout(() => {
+                        startNextDriverSession();
+                      }, 3000); // Wait 3 seconds after reset for car to be ready
                     }).catch((err) => {
                       console.error("Error resetting car after timed session:", err);
                       setTimedSessionActive(false);
@@ -226,8 +269,107 @@ export default function DeviceDetailsPage() {
               return; // Exit early if no active session
             }
             
+            // Check if waiting for movement
+            if (sessionState.waitingForMovement && !sessionState.active) {
+              // Session is waiting for car to start moving - check speed
+              // Fetch fresh speed data instead of relying on state
+              const currentSpeed = iracingStatus?.telemetry?.speedKph ?? null;
+              console.log(`[syncTimedSessionFromDB] Session waiting for movement, current speed: ${currentSpeed} km/h`);
+              
+              // Update visual status
+              setMovementStatus({
+                waiting: true,
+                speed: currentSpeed,
+                detected: currentSpeed !== null && currentSpeed !== undefined && currentSpeed > 5
+              });
+              
+              if (currentSpeed !== null && currentSpeed !== undefined && currentSpeed > 5) {
+                // Car is moving, start the timer
+                const startTime = Date.now();
+                const activeSessionState = {
+                  active: true,
+                  waitingForMovement: false,
+                  startTime,
+                  duration: sessionState.duration,
+                  driver_user_id: sessionState.driver_user_id
+                };
+                
+                // Update in database
+                await fetch(`/api/device/${deviceId}/timed-session`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sessionState: activeSessionState })
+                }).catch(console.error);
+                
+                // Update local state
+                setTimedSessionActive(true);
+                setTimedSessionRemaining(sessionState.duration);
+                setSessionStartTime(startTime);
+                setSessionDuration(sessionState.duration);
+                
+                // Start countdown timer
+                if (timedSessionIntervalRef.current) {
+                  clearInterval(timedSessionIntervalRef.current);
+                }
+                
+                const interval = setInterval(() => {
+                  setTimedSessionRemaining((prev) => {
+                    if (prev === null || prev <= 1) {
+                      clearInterval(interval);
+                      timedSessionIntervalRef.current = null;
+                      // Timer expired - queue reset_car command
+                      queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+                        // Mark previous driver's queue entry as completed and clear session state
+                        try {
+                          await fetch(`/api/device/${deviceId}/timed-session`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionState: null })
+                          }).catch(console.error);
+
+                          await fetch(`/api/device/${deviceId}/queue/complete`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                          }).catch(console.error);
+                        } catch (err) {
+                          console.error("Error updating queue after session:", err);
+                        }
+
+                        setTimedSessionActive(false);
+                        setTimedSessionRemaining(null);
+                        setSessionStartTime(null);
+                        setSessionDuration(null);
+                        setCommandMessage("Timed session completed. Car reset.");
+                        setTimeout(() => setCommandMessage(null), 5000);
+
+                        setTimeout(() => {
+                          startNextDriverSession();
+                        }, 3000);
+                      }).catch((err) => {
+                        console.error("Error resetting car after timed session:", err);
+                        setTimedSessionActive(false);
+                        setTimedSessionRemaining(null);
+                        setSessionStartTime(null);
+                        setSessionDuration(null);
+                      });
+                      return 0;
+                    }
+                    return prev - 1;
+                  });
+                }, 1000);
+                
+                timedSessionIntervalRef.current = interval;
+                
+                // Clear movement status since timer started
+                setMovementStatus(null);
+                return; // Exit early
+              }
+              // Still waiting for movement - don't start timer yet
+              return;
+            }
+            
             // Session is active - sync the timer
-            if (sessionState.active) {
+            if (sessionState.active && sessionState.startTime) {
               const { startTime, duration } = sessionState;
               const elapsed = Math.floor((Date.now() - startTime) / 1000);
               const remaining = duration - elapsed;
@@ -252,19 +394,36 @@ export default function DeviceDetailsPage() {
                         clearInterval(interval);
                         timedSessionIntervalRef.current = null;
                         // Timer expired - queue reset_car command FIRST
-                        queueCommand("reset_car", { grace_period: 0 }).then(() => {
-                          // Clear from database AFTER command is queued
-                          fetch(`/api/device/${deviceId}/timed-session`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sessionState: null })
-                          }).catch(console.error);
+                        queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+                          // Mark previous driver's queue entry as completed and clear session state
+                          try {
+                            // Clear timed session state first
+                            await fetch(`/api/device/${deviceId}/timed-session`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ sessionState: null })
+                            }).catch(console.error);
+
+                            // Then mark queue entry as completed
+                            await fetch(`/api/device/${deviceId}/queue/complete`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' }
+                            }).catch(console.error);
+                          } catch (err) {
+                            console.error("Error updating queue after session:", err);
+                          }
+
                           setTimedSessionActive(false);
                           setTimedSessionRemaining(null);
                           setSessionStartTime(null);
                           setSessionDuration(null);
                           setCommandMessage("Timed session completed. Car reset.");
                           setTimeout(() => setCommandMessage(null), 5000);
+
+                          // Check for next driver and start their session
+                          setTimeout(() => {
+                            startNextDriverSession();
+                          }, 3000); // Wait 3 seconds after reset for car to be ready
                         }).catch((err) => {
                           console.error("Error resetting car after timed session:", err);
                           setTimedSessionActive(false);
@@ -381,19 +540,36 @@ export default function DeviceDetailsPage() {
                         clearInterval(interval);
                         timedSessionIntervalRef.current = null;
                         // Timer expired - queue reset_car command FIRST
-                        queueCommand("reset_car", { grace_period: 0 }).then(() => {
-                          // Clear from database AFTER command is queued
-                          fetch(`/api/device/${deviceId}/timed-session`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sessionState: null })
-                          }).catch(console.error);
+                        queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+                          // Mark previous driver's queue entry as completed and clear session state
+                          try {
+                            // Clear timed session state first
+                            await fetch(`/api/device/${deviceId}/timed-session`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ sessionState: null })
+                            }).catch(console.error);
+
+                            // Then mark queue entry as completed
+                            await fetch(`/api/device/${deviceId}/queue/complete`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' }
+                            }).catch(console.error);
+                          } catch (err) {
+                            console.error("Error updating queue after session:", err);
+                          }
+
                           setTimedSessionActive(false);
                           setTimedSessionRemaining(null);
                           setSessionStartTime(null);
                           setSessionDuration(null);
                           setCommandMessage("Timed session completed. Car reset.");
                           setTimeout(() => setCommandMessage(null), 5000);
+
+                          // Check for next driver and start their session
+                          setTimeout(() => {
+                            startNextDriverSession();
+                          }, 3000); // Wait 3 seconds after reset for car to be ready
                         }).catch((err) => {
                           console.error("Error resetting car after timed session:", err);
                           setTimedSessionActive(false);
@@ -444,6 +620,14 @@ export default function DeviceDetailsPage() {
           }
         });
       
+      // Fetch queue data
+      fetchQueue();
+      
+      // Poll queue every 5 seconds
+      queuePollIntervalRef.current = setInterval(() => {
+        fetchQueue();
+      }, 5000);
+      
       return () => {
         supabase.removeChannel(channel);
         clearInterval(lapStatsInterval);
@@ -459,20 +643,63 @@ export default function DeviceDetailsPage() {
         if (sessionSyncInterval) {
           clearInterval(sessionSyncInterval);
         }
+        // Clean up queue polling interval
+        if (queuePollIntervalRef.current) {
+          clearInterval(queuePollIntervalRef.current);
+          queuePollIntervalRef.current = null;
+        }
+        // Clean up iRacing status polling interval
+        if (iracingStatusInterval) {
+          clearInterval(iracingStatusInterval);
+        }
       };
     }
   }, [session, sessionLoading, deviceId, router, supabase]);
 
+  const fetchQueue = async () => {
+    try {
+      const response = await fetch(`/api/device/${deviceId}/queue`);
+      if (response.ok) {
+        const data = await response.json();
+        setQueueData(data);
+      }
+    } catch (err) {
+      console.error("[fetchQueue] Error:", err);
+    }
+  };
+
   const fetchDeviceInfo = async () => {
     try {
+      // Check admin access via API for proper server-side validation
+      let adminStatus = false;
+      if (session?.access_token) {
+        try {
+          const adminCheckResponse = await fetch("/api/admin/check-role", {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`
+            }
+          });
+          if (adminCheckResponse.ok) {
+            const adminData = await adminCheckResponse.json();
+            adminStatus = adminData.isAdmin || adminData.isSuperAdmin || false;
+          }
+        } catch (err) {
+          // Fall back to client-side check if API fails
+          adminStatus = session?.user?.email ? checkAdminAccess(session.user.email) : false;
+        }
+      }
+      
+      // Store admin status in state for use in render
+      setIsAdmin(adminStatus);
+
       const response = await fetch(`/api/device/info?deviceId=${deviceId}`);
       if (!response.ok) {
         throw new Error("Failed to fetch device information");
       }
       const data = await response.json();
       
-      // Check if device is claimed by current user
-      if (data.claimed && data.ownerUserId !== session?.user.id) {
+      // Check if device is claimed by current user, or if user is super admin
+      if (data.claimed && data.ownerUserId !== session?.user.id && !adminStatus) {
         setError("You don't have access to this device.");
         return;
       }
@@ -576,6 +803,143 @@ export default function DeviceDetailsPage() {
     }, 500); // Poll every 500ms
   };
 
+  // Check if session is waiting for movement and start timer when car moves
+  const checkAndStartTimerOnMovement = async (speedKphFromData?: number | null) => {
+    try {
+      // Get current session state
+      const sessionResponse = await fetch(`/api/device/${deviceId}/timed-session`);
+      if (!sessionResponse.ok) {
+        console.log(`[checkAndStartTimerOnMovement] Failed to fetch session state: ${sessionResponse.status}`);
+        return;
+      }
+      
+      const sessionData = await sessionResponse.json();
+      const sessionState = sessionData.sessionState;
+      
+      console.log(`[checkAndStartTimerOnMovement] Session state:`, sessionState);
+      console.log(`[checkAndStartTimerOnMovement] Speed from data: ${speedKphFromData}, from state: ${iracingStatus?.telemetry?.speedKph}`);
+      
+      // Check if session is waiting for movement
+      if (sessionState && sessionState.waitingForMovement && !sessionState.active) {
+        // Use speed from parameter (fresh data) or fall back to state
+        const speedKph = speedKphFromData !== undefined ? speedKphFromData : (iracingStatus?.telemetry?.speedKph ?? null);
+        
+        console.log(`[checkAndStartTimerOnMovement] Checking speed: ${speedKph} km/h (threshold: 5 km/h)`);
+        
+        // Check if car is moving (speed > 5 km/h)
+        if (speedKph !== null && speedKph !== undefined && speedKph > 5) {
+          console.log(`[checkAndStartTimerOnMovement] ✅ Car is moving (${speedKph} km/h), starting timer!`);
+          
+          // Start the timer now
+          const startTime = Date.now();
+          const activeSessionState = {
+            active: true,
+            waitingForMovement: false,
+            startTime,
+            duration: sessionState.duration,
+            driver_user_id: sessionState.driver_user_id
+          };
+          
+          // Update session state in database
+          const updateResponse = await fetch(`/api/device/${deviceId}/timed-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionState: activeSessionState })
+          });
+          
+          if (!updateResponse.ok) {
+            console.error(`[checkAndStartTimerOnMovement] Failed to update session state: ${updateResponse.status}`);
+          } else {
+            console.log(`[checkAndStartTimerOnMovement] ✅ Session state updated successfully`);
+          }
+          
+          // Update local state
+          setTimedSessionActive(true);
+          setTimedSessionRemaining(sessionState.duration);
+          setSessionStartTime(startTime);
+          setSessionDuration(sessionState.duration);
+          
+          // Start countdown timer
+          if (timedSessionIntervalRef.current) {
+            clearInterval(timedSessionIntervalRef.current);
+          }
+          
+          const interval = setInterval(() => {
+            setTimedSessionRemaining((prev) => {
+              if (prev === null || prev <= 1) {
+                clearInterval(interval);
+                timedSessionIntervalRef.current = null;
+                // Timer expired - queue reset_car command
+                queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+                  // Mark previous driver's queue entry as completed and clear session state
+                  try {
+                    await fetch(`/api/device/${deviceId}/timed-session`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sessionState: null })
+                    }).catch(console.error);
+
+                    await fetch(`/api/device/${deviceId}/queue/complete`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' }
+                    }).catch(console.error);
+                  } catch (err) {
+                    console.error("Error updating queue after session:", err);
+                  }
+
+                  setTimedSessionActive(false);
+                  setTimedSessionRemaining(null);
+                  setSessionStartTime(null);
+                  setSessionDuration(null);
+                  setCommandMessage("Timed session completed. Car reset.");
+                  setTimeout(() => setCommandMessage(null), 5000);
+
+                  setTimeout(() => {
+                    startNextDriverSession();
+                  }, 3000);
+                }).catch((err) => {
+                  console.error("Error resetting car after timed session:", err);
+                  setTimedSessionActive(false);
+                  setTimedSessionRemaining(null);
+                  setSessionStartTime(null);
+                  setSessionDuration(null);
+                });
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+          
+          timedSessionIntervalRef.current = interval;
+          
+          setCommandMessage("Timer started! Your session is now active.");
+          setTimeout(() => setCommandMessage(null), 3000);
+          
+          // Clear movement status since timer started
+          setMovementStatus(null);
+        } else {
+          console.log(`[checkAndStartTimerOnMovement] ⏳ Waiting for movement... (speed: ${speedKph} km/h)`);
+          // Update visual status
+          setMovementStatus({
+            waiting: true,
+            speed: speedKph,
+            detected: false
+          });
+        }
+      } else {
+        if (!sessionState) {
+          console.log(`[checkAndStartTimerOnMovement] No session state found`);
+          setMovementStatus(null);
+        } else if (!sessionState.waitingForMovement) {
+          console.log(`[checkAndStartTimerOnMovement] Session not waiting for movement (active: ${sessionState.active}, waitingForMovement: ${sessionState.waitingForMovement})`);
+          setMovementStatus(null);
+        }
+      }
+    } catch (err) {
+      console.error("[checkAndStartTimerOnMovement] Error:", err);
+    }
+  };
+
   const fetchIracingStatus = async () => {
     try {
       // Add cache-busting to ensure fresh data
@@ -584,6 +948,11 @@ export default function DeviceDetailsPage() {
         const data = await response.json();
         console.log(`[DeviceDetails] Fetched iRacing status:`, data);
         setIracingStatus(data);
+        
+        // Check if we need to start timer on movement
+        // Pass speed directly from the fetched data to avoid stale state issues
+        const speedKph = data.telemetry?.speedKph ?? null;
+        checkAndStartTimerOnMovement(speedKph);
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error(`[DeviceDetails] Status API error:`, response.status, errorData);
@@ -638,10 +1007,81 @@ export default function DeviceDetailsPage() {
 
       await fetchDeviceInfo();
       setIsEditing(false);
+      setIsEditingGeolocation(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update device");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Start next driver's session from queue
+  const startNextDriverSession = async () => {
+    try {
+      // Get the active driver from queue
+      const queueResponse = await fetch(`/api/device/${deviceId}/queue`);
+      if (!queueResponse.ok) {
+        console.error("[startNextDriverSession] Failed to fetch queue");
+        return;
+      }
+
+      const queueData = await queueResponse.json();
+      const activeDriver = queueData.active;
+
+      if (!activeDriver) {
+        console.log("[startNextDriverSession] No active driver in queue");
+        return;
+      }
+
+      console.log("[startNextDriverSession] Starting session for active driver:", activeDriver.user_id);
+
+      // Get default session duration (1 minute for testing)
+      const sessionMinutes = 1;
+      const durationSeconds = sessionMinutes * 60;
+
+      // Enter car and start timed session
+      const enterCarResponse = await fetch(`/api/device/${deviceId}/commands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "driver",
+          action: "enter_car",
+          params: {
+            timed_session: true,
+            session_duration_seconds: durationSeconds,
+            queue_driver_id: activeDriver.user_id
+          }
+        })
+      });
+
+      if (!enterCarResponse.ok) {
+        console.error("[startNextDriverSession] Failed to queue enter_car command");
+        return;
+      }
+
+      // Wait a moment for enter_car to process, then set up session (waiting for movement)
+      setTimeout(async () => {
+        const sessionState = {
+          active: false,
+          waitingForMovement: true,
+          startTime: null, // Will be set when car starts moving
+          duration: durationSeconds,
+          driver_user_id: activeDriver.user_id
+        };
+
+        // Save to database (waiting for movement)
+        await fetch(`/api/device/${deviceId}/timed-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionState })
+        }).catch(console.error);
+
+        // Don't start timer yet - will start when car moves
+        setCommandMessage(`Driver session ready! Timer will start when car begins moving.`);
+        setTimeout(() => setCommandMessage(null), 5000);
+      }, 2000);
+    } catch (err) {
+      console.error("[startNextDriverSession] Error:", err);
     }
   };
 
@@ -854,19 +1294,36 @@ export default function DeviceDetailsPage() {
             timedSessionIntervalRef.current = null;
             localStorage.removeItem(sessionKey);
             // Timer expired - queue reset_car command FIRST
-            queueCommand("reset_car", { grace_period: 0 }).then(() => {
-              // Clear from database AFTER command is queued
-              fetch(`/api/device/${deviceId}/timed-session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionState: null })
-              }).catch(console.error);
+            queueCommand("reset_car", { grace_period: 0 }).then(async () => {
+              // Mark previous driver's queue entry as completed and clear session state
+              try {
+                // Clear timed session state first
+                await fetch(`/api/device/${deviceId}/timed-session`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sessionState: null })
+                }).catch(console.error);
+
+                // Then mark queue entry as completed
+                await fetch(`/api/device/${deviceId}/queue/complete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' }
+                }).catch(console.error);
+              } catch (err) {
+                console.error("Error updating queue after session:", err);
+              }
+              
               setTimedSessionActive(false);
               setTimedSessionRemaining(null);
               setSessionStartTime(null);
               setSessionDuration(null);
               setCommandMessage("Timed session completed. Car reset.");
               setTimeout(() => setCommandMessage(null), 5000);
+
+              // Check for next driver and start their session
+              setTimeout(() => {
+                startNextDriverSession();
+              }, 3000); // Wait 3 seconds after reset for car to be ready
             }).catch((err) => {
               console.error("Error resetting car after timed session:", err);
               setTimedSessionActive(false);
@@ -935,7 +1392,26 @@ export default function DeviceDetailsPage() {
   };
 
   const requestBrowserLocation = async () => {
-    if (!deviceInfo || !deviceInfo.claimed || deviceInfo.ownerUserId !== session?.user.id) {
+    // Check admin access via API for proper server-side validation
+    let isAdmin = false;
+    if (session?.access_token) {
+      try {
+        const adminCheckResponse = await fetch("/api/admin/check-role", {
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`
+          }
+        });
+        if (adminCheckResponse.ok) {
+          const adminData = await adminCheckResponse.json();
+          isAdmin = adminData.isAdmin || adminData.isSuperAdmin || false;
+        }
+      } catch (err) {
+        // Fall back to client-side check if API fails
+        isAdmin = session?.user?.email ? checkAdminAccess(session.user.email) : false;
+      }
+    }
+
+    if (!deviceInfo || (!deviceInfo.claimed && !isAdmin) || (deviceInfo.ownerUserId !== session?.user.id && !isAdmin)) {
       setCommandMessage("You must own this device to update its location");
       setTimeout(() => setCommandMessage(null), 3000);
       return;
@@ -1140,6 +1616,7 @@ export default function DeviceDetailsPage() {
                     <button
                       onClick={() => {
                         setIsEditing(false);
+                        setIsEditingGeolocation(false);
                         setEditName(deviceInfo.deviceName || "");
                         setEditLocation(deviceInfo.location || "");
                         setEditAddress(deviceInfo.address || "");
@@ -1281,6 +1758,43 @@ export default function DeviceDetailsPage() {
                     : "bg-red-600/20 text-red-400 border border-red-600/30"
                 }`}>
                   {commandMessage}
+                </div>
+              )}
+              
+              {/* Movement Detection Status */}
+              {movementStatus && movementStatus.waiting && (
+                <div className="mb-4 p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse"></div>
+                      <span className="font-medium text-yellow-300">Waiting for Movement</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-yellow-200/80">Current Speed:</span>
+                      <span className="font-mono font-semibold text-yellow-300">
+                        {movementStatus.speed !== null && movementStatus.speed !== undefined 
+                          ? `${movementStatus.speed.toFixed(1)} km/h` 
+                          : "No data"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-yellow-200/60">
+                      <span>Threshold:</span>
+                      <span className="font-mono">5.0 km/h</span>
+                    </div>
+                    {movementStatus.speed !== null && movementStatus.speed !== undefined && (
+                      <div className={`text-xs mt-2 pt-2 border-t border-yellow-500/20 ${
+                        movementStatus.speed > 5 
+                          ? "text-green-300" 
+                          : "text-yellow-200/60"
+                      }`}>
+                        {movementStatus.speed > 5 
+                          ? "✓ Speed detected! Timer will start..." 
+                          : `⏳ Need ${(5 - movementStatus.speed).toFixed(1)} km/h more`}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1437,44 +1951,82 @@ export default function DeviceDetailsPage() {
           </div>
 
           {/* Geolocation Information */}
-          {(deviceInfo.address || deviceInfo.latitude || deviceInfo.city || isEditing) && (
+          {(() => {
+            // Check if user can edit (owner or admin)
+            const canEdit = deviceInfo.claimed && (deviceInfo.ownerUserId === session?.user.id || isAdmin);
+            
+            // Show geolocation section if device has data OR if user can edit (to allow adding location)
+            const hasGeolocationData = deviceInfo.address || deviceInfo.latitude || deviceInfo.city;
+            return (hasGeolocationData || isEditingGeolocation || canEdit);
+          })() && (
             <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Geolocation</h3>
-                {!isEditing && deviceInfo.claimed && deviceInfo.ownerUserId === session?.user.id && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={requestBrowserLocation}
-                      disabled={requestingLocation}
-                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                      title="Use your browser's location (more accurate)"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      {requestingLocation ? "Getting..." : "Use My Location"}
-                    </button>
-                    <button
-                      onClick={() => setIsEditing(true)}
-                      className="text-xs text-slate-400 hover:text-slate-300"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                )}
+                {!isEditingGeolocation && (() => {
+                  // Use admin status from state (set during fetchDeviceInfo)
+                  const canEdit = deviceInfo.claimed && (deviceInfo.ownerUserId === session?.user.id || isAdmin);
+                  return canEdit ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={requestBrowserLocation}
+                        disabled={requestingLocation}
+                        className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                        title="Use your browser's location (more accurate)"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        {requestingLocation ? "Getting..." : "Use My Location"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEditingGeolocation(true);
+                          setEditAddress(deviceInfo.address || "");
+                        }}
+                        className="text-xs text-slate-400 hover:text-slate-300"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div className="space-y-3">
                 <div className="py-2 border-b border-slate-800/50">
                   <span className="text-xs text-slate-500 block mb-1">Address</span>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editAddress}
-                      onChange={(e) => setEditAddress(e.target.value)}
-                      className="input text-sm w-full mt-1"
-                      placeholder="Enter street address (e.g., 123 Main St, Grayslake, IL)"
-                    />
+                  {isEditingGeolocation ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editAddress}
+                        onChange={(e) => setEditAddress(e.target.value)}
+                        className="input text-sm w-full mt-1"
+                        placeholder="Enter street address (e.g., 123 Main St, Grayslake, IL)"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Address will be geocoded to get coordinates for the map
+                      </p>
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={handleSave}
+                          disabled={saving}
+                          className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {saving ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsEditingGeolocation(false);
+                            setEditAddress(deviceInfo?.address || "");
+                          }}
+                          disabled={saving}
+                          className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <span className="text-sm font-medium text-slate-200">{deviceInfo.address || "Not set"}</span>
@@ -1482,11 +2034,6 @@ export default function DeviceDetailsPage() {
                         <span className="text-xs text-slate-400 block mt-1">{deviceInfo.displayAddress}</span>
                       )}
                     </>
-                  )}
-                  {isEditing && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Address will be geocoded to get coordinates for the map
-                    </p>
                   )}
                 </div>
                 {(deviceInfo.city || deviceInfo.region || deviceInfo.country) && (
@@ -1544,6 +2091,81 @@ export default function DeviceDetailsPage() {
                   {iracingStatus?.iracingConnected ? "Online" : "Offline"}
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* Queue Section */}
+          <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Drive Queue</h3>
+              <Link
+                href={`/device/${deviceId}/queue`}
+                className="text-xs text-red-400 hover:text-red-300 underline"
+              >
+                View Queue
+              </Link>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Queue Stats */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-400">
+                    {queueData?.totalWaiting || 0} {queueData?.totalWaiting === 1 ? "person" : "people"} waiting
+                  </p>
+                  {queueData?.active && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      🏎️ {queueData.active.irc_user_profiles?.display_name || queueData.active.irc_user_profiles?.email || "Driver"} is driving
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* QR Code */}
+              <div className="flex flex-col items-center gap-3 pt-4 border-t border-slate-800/50">
+                <p className="text-xs text-slate-500 text-center">
+                  Scan QR code to join queue
+                </p>
+                <div className="p-3 bg-white rounded-lg">
+                  <QRCodeSVG
+                    value={`${typeof window !== 'undefined' ? window.location.origin : 'https://revshareracing.com'}/device/${deviceId}/queue`}
+                    size={128}
+                    level="M"
+                    includeMargin={false}
+                  />
+                </div>
+                <Link
+                  href={`/device/${deviceId}/queue`}
+                  className="text-xs text-red-400 hover:text-red-300 underline break-all text-center max-w-full"
+                >
+                  {typeof window !== 'undefined' ? window.location.origin : 'https://revshareracing.com'}/device/{deviceId}/queue
+                </Link>
+              </div>
+
+              {/* Quick Queue Preview */}
+              {queueData && queueData.queue.length > 0 && (
+                <div className="pt-4 border-t border-slate-800/50">
+                  <p className="text-xs text-slate-500 mb-2">Next in queue:</p>
+                  <div className="space-y-1">
+                    {queueData.queue.slice(0, 3).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        <span className="text-slate-400 w-6">#{entry.position}</span>
+                        <span className="text-slate-300">
+                          {entry.irc_user_profiles?.display_name || entry.irc_user_profiles?.email || "Driver"}
+                        </span>
+                      </div>
+                    ))}
+                    {queueData.queue.length > 3 && (
+                      <p className="text-xs text-slate-500 mt-2">
+                        +{queueData.queue.length - 3} more
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

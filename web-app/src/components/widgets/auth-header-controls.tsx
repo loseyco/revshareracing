@@ -11,6 +11,7 @@ export function AuthHeaderControls() {
   const { supabase, session, loading } = useSupabase();
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     if (session?.user?.email) {
@@ -21,8 +22,53 @@ export function AuthHeaderControls() {
   }, [session]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.refresh();
+    if (isLoggingOut) return; // Prevent double-clicks
+    
+    setIsLoggingOut(true);
+    try {
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("[handleLogout] Error signing out:", error);
+      }
+      
+      // Aggressively clear all Supabase-related storage
+      try {
+        // Clear localStorage items that might contain session data
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.includes('supabase') || key.includes('sb-'))) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        // Clear sessionStorage as well
+        const sessionKeysToRemove: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          if (key && (key.includes('supabase') || key.includes('sb-'))) {
+            sessionKeysToRemove.push(key);
+          }
+        }
+        sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key));
+      } catch (storageError) {
+        console.error("[handleLogout] Error clearing storage:", storageError);
+      }
+      
+      // Wait a bit to ensure signOut completes
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Force a hard redirect with cache busting to ensure fresh page load
+      // This works better in embedded browsers like Cursor
+      window.location.href = `/?logout=${Date.now()}`;
+    } catch (err) {
+      console.error("[handleLogout] Unexpected error:", err);
+      // Still redirect even on error, with cache busting
+      window.location.href = `/?logout=${Date.now()}`;
+    }
+    // Note: We don't set isLoggingOut to false because we're redirecting
   };
 
   if (loading) {
@@ -66,6 +112,16 @@ export function AuthHeaderControls() {
         </svg>
         <span>Dashboard</span>
       </Link>
+      <Link
+        href="/leaderboards"
+        className="btn-secondary px-3 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+        </svg>
+        <span className="hidden sm:inline">Leaderboards</span>
+        <span className="sm:hidden">🏆</span>
+      </Link>
       {isAdmin && (
         <Link
           href="/admin"
@@ -81,12 +137,22 @@ export function AuthHeaderControls() {
       <button
         type="button"
         onClick={handleLogout}
-        className="inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-semibold text-slate-300 backdrop-blur-sm transition-all duration-300 hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300 hover:shadow-lg hover:shadow-rose-500/20"
+        disabled={isLoggingOut}
+        className="inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-semibold text-slate-300 backdrop-blur-sm transition-all duration-300 hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300 hover:shadow-lg hover:shadow-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
-        <span>Logout</span>
+        {isLoggingOut ? (
+          <>
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-rose-400 border-t-transparent"></div>
+            <span>Logging out...</span>
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span>Logout</span>
+          </>
+        )}
       </button>
     </div>
   );

@@ -88,6 +88,8 @@ class RigService:
         self.timed_reset_grace_period = 30  # seconds
         self.timed_reset_thread = None
         self._last_reset_time = 0
+        # Timed session state for queue drivers
+        self.timed_session_state = None  # {active: bool, waitingForMovement: bool, startTime: int, duration: int, driver_user_id: str}
         self._setup_device()
     
     def _setup_device(self):
@@ -190,6 +192,9 @@ class RigService:
         
         # Check for state changes and push updates immediately
         self._check_and_push_state_changes(data)
+        
+        # Check timed session movement detection and timer
+        self._check_timed_session(data)
         
         # Ignore telemetry for first 3 seconds after startup to prevent recording stale laps
         if time.time() - self.start_time < 3:
@@ -767,15 +772,135 @@ class RigService:
                 if last_engine_running is not None and engine_running != last_engine_running:
                     print(f"[INFO] State change: Engine {'started' if engine_running else 'stopped'}")
                 
-                self._last_telemetry_values = current_state
+                # Update last values
+                self._last_telemetry_values = current_state.copy()
                 self._last_state_update = now
-                
-                # Debug logging for state updates
-                if last_in_car is not None and in_car != last_in_car:
-                    print(f"[DEBUG] State update pushed: in_car={in_car} (was {last_in_car})")
         except Exception as e:
-            # Log errors for state updates - they're important for UI accuracy
-            print(f"[WARN] Failed to push state update: {e}")
+            print(f"[ERROR] Error in _check_and_push_state_changes: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _check_timed_session(self, telemetry_data):
+        """Check timed session movement detection and timer expiration"""
+        if not self.timed_session_state:
+            return
+        
+        speed_kph = telemetry_data.get('speed_kph', 0) or 0
+        
+        # If waiting for movement, check if car is moving
+        if self.timed_session_state.get('waitingForMovement') and not self.timed_session_state.get('active'):
+            if speed_kph > 5:
+                # Car is moving - start the timer
+                print(f"[INFO] Timed session: Car is moving ({speed_kph:.1f} km/h), starting timer")
+                self.timed_session_state['active'] = True
+                self.timed_session_state['waitingForMovement'] = False
+                self.timed_session_state['startTime'] = int(time.time() * 1000)  # milliseconds
+                self._update_timed_session_state()
+        
+        # If active, check if timer expired
+        if self.timed_session_state.get('active') and self.timed_session_state.get('startTime'):
+            start_time_ms = self.timed_session_state['startTime']
+            duration_seconds = self.timed_session_state['duration']
+            elapsed_seconds = (time.time() * 1000 - start_time_ms) / 1000
+            
+            if elapsed_seconds >= duration_seconds:
+                # Timer expired - reset car and complete session
+                print(f"[INFO] Timed session expired ({elapsed_seconds:.1f}s / {duration_seconds}s), resetting car")
+                self._complete_timed_session()
+    
+    def _update_timed_session_state(self):
+        """Update timed session state in database"""
+        if not self.device_id or not self.supabase_connected:
+            return
+        
+        try:
+            from datetime import datetime
+            now_iso = datetime.utcnow().isoformat() + 'Z'
+            
+            update_data = {
+                'timed_session_state': self.timed_session_state,
+                'updated_at': now_iso,
+            }
+            
+            supabase_service.table('irc_devices')\
+                .update(update_data)\
+                .eq('device_id', self.device_id)\
+                .execute()
+            
+            print(f"[INFO] Updated timed session state in database: active={self.timed_session_state.get('active')}, waitingForMovement={self.timed_session_state.get('waitingForMovement')}")
+        except Exception as e:
+            print(f"[ERROR] Failed to update timed session state: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _complete_timed_session(self):
+        """Complete timed session: reset car, clear state, mark queue entry as completed"""
+        if not self.device_id or not self.supabase_connected:
+            return
+        
+        driver_user_id = self.timed_session_state.get('driver_user_id') if self.timed_session_state else None
+        
+        try:
+            # Queue reset_car command via Supabase (same way website does it)
+            print(f"[INFO] Queuing reset_car command to complete timed session")
+            try:
+                supabase_service.table('irc_device_commands')\
+                    .insert({
+                        'device_id': self.device_id,
+                        'command_type': 'driver',
+                        'command_action': 'reset_car',
+                        'command_params': {'grace_period': 0},
+                        'status': 'pending'
+                    })\
+                    .execute()
+                print(f"[INFO] Queued reset_car command successfully")
+            except Exception as e:
+                print(f"[ERROR] Failed to queue reset_car command: {e}")
+            
+            # Clear timed session state
+            from datetime import datetime
+            now_iso = datetime.utcnow().isoformat() + 'Z'
+            
+            supabase_service.table('irc_devices')\
+                .update({
+                    'timed_session_state': None,
+                    'updated_at': now_iso,
+                })\
+                .eq('device_id', self.device_id)\
+                .execute()
+            
+            # Mark queue entry as completed
+            if driver_user_id:
+                try:
+                    # Find active queue entry for this driver
+                    queue_result = supabase_service.table('irc_device_queue')\
+                        .select('id')\
+                        .eq('device_id', self.device_id)\
+                        .eq('user_id', driver_user_id)\
+                        .eq('status', 'active')\
+                        .maybe_single()\
+                        .execute()
+                    
+                    if queue_result.data:
+                        queue_id = queue_result.data['id']
+                        supabase_service.table('irc_device_queue')\
+                            .update({
+                                'status': 'completed',
+                                'completed_at': now_iso,
+                                'updated_at': now_iso,
+                            })\
+                            .eq('id', queue_id)\
+                            .execute()
+                        print(f"[INFO] Marked queue entry {queue_id} as completed")
+                except Exception as e:
+                    print(f"[WARN] Failed to mark queue entry as completed: {e}")
+            
+            # Clear local state
+            self.timed_session_state = None
+            print(f"[INFO] Timed session completed and cleared")
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to complete timed session: {e}")
             import traceback
             traceback.print_exc()
     
@@ -1376,6 +1501,11 @@ class RigService:
         
         # Handle enter_car specially - just press the key, don't go through full reset sequence
         elif cmd_action == 'enter_car':
+            # Check if this is a timed session (from queue)
+            timed_session = cmd_params.get('timed_session', False)
+            session_duration_seconds = cmd_params.get('session_duration_seconds', 60)
+            queue_driver_id = cmd_params.get('queue_driver_id')
+            
             # Enter car should just press the reset key (same as reset_car binding)
             # But don't run the full reset sequence - just send the key press directly
             # Focus iRacing window first (like reset_car does) to ensure it works reliably
@@ -1387,6 +1517,19 @@ class RigService:
             # Use execute_action which handles focusing and has fallback logic
             # This is simpler and more reliable than trying to manually send the key
             result = self.controls_manager.execute_action("enter_car", source=source)
+            
+            # If timed session, set up session state waiting for movement
+            if timed_session and queue_driver_id:
+                print(f"[INFO] Setting up timed session for driver {queue_driver_id}, duration: {session_duration_seconds}s")
+                self.timed_session_state = {
+                    'active': False,
+                    'waitingForMovement': True,
+                    'startTime': None,
+                    'duration': session_duration_seconds,
+                    'driver_user_id': queue_driver_id
+                }
+                # Update database with waiting state
+                self._update_timed_session_state()
             
             # Force state update after enter_car to sync with website
             time.sleep(1.0)  # Wait for state to settle
