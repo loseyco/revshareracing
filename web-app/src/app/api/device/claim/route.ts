@@ -71,24 +71,22 @@ export async function POST(request: Request) {
   }
 
   // Validate userId exists if provided (to avoid foreign key constraint violations)
+  // Use auth.admin API to verify user exists in auth.users
   if (userId) {
-    const { data: userRecord, error: userFetchError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", userId)
-      .limit(1)
-      .maybeSingle();
+    try {
+      const { data: userData, error: userFetchError } = await supabase.auth.admin.getUserById(userId);
 
-    if (userFetchError) {
-      console.error("[claimDevice] userFetchError", userFetchError);
-      return NextResponse.json({ error: "Failed to validate user" }, { status: 500 });
-    }
-
-    if (!userRecord) {
-      return NextResponse.json(
-        { error: "Invalid user. Please sign in again." },
-        { status: 400 }
-      );
+      if (userFetchError || !userData?.user) {
+        console.error("[claimDevice] userFetchError", userFetchError);
+        return NextResponse.json(
+          { error: "Invalid user. Please sign in again." },
+          { status: 400 }
+        );
+      }
+    } catch (error) {
+      // If admin API is not available, skip validation and rely on FK constraint
+      // The FK constraint will catch invalid user IDs during the update
+      console.warn("[claimDevice] Could not validate user via admin API, relying on FK constraint:", error);
     }
   }
 

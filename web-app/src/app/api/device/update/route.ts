@@ -63,9 +63,12 @@ async function handleUpdate(request: Request) {
         const geocodeData = await geocodeResponse.json();
         if (geocodeData && geocodeData.length > 0) {
           const result = geocodeData[0];
+          // Validate parseFloat results to prevent NaN values
+          const lat = parseFloat(result.lat);
+          const lon = parseFloat(result.lon);
           geocodedData = {
-            latitude: parseFloat(result.lat),
-            longitude: parseFloat(result.lon),
+            latitude: !isNaN(lat) && isFinite(lat) ? lat : undefined,
+            longitude: !isNaN(lon) && isFinite(lon) ? lon : undefined,
             city: result.address?.city || result.address?.town || result.address?.village,
             region: result.address?.state,
             country: result.address?.country,
@@ -139,10 +142,17 @@ async function handleUpdate(request: Request) {
       updates.postal_code = null;
     } else if (Object.keys(geocodedData).length > 0) {
       // Update coordinates and location data from geocoding
-      if (geocodedData.latitude !== undefined) {
+      // Validate that values are valid numbers (not NaN) before storing
+      if (geocodedData.latitude !== undefined && 
+          typeof geocodedData.latitude === 'number' && 
+          !isNaN(geocodedData.latitude) && 
+          isFinite(geocodedData.latitude)) {
         updates.latitude = geocodedData.latitude;
       }
-      if (geocodedData.longitude !== undefined) {
+      if (geocodedData.longitude !== undefined && 
+          typeof geocodedData.longitude === 'number' && 
+          !isNaN(geocodedData.longitude) && 
+          isFinite(geocodedData.longitude)) {
         updates.longitude = geocodedData.longitude;
       }
       if (geocodedData.city) {

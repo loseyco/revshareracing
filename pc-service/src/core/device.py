@@ -210,10 +210,10 @@ class DeviceManager:
         claim_code = claim_code or self._generate_claim_code()
         config['claim_code'] = claim_code
         
-        # Only include company_id if it's None or empty string (to avoid foreign key violations)
-        company_id = config.get('company_id')
-        if company_id is not None and company_id == '':
-            company_id = None
+        # Get company_id from config - preserve original value for retry logic
+        original_company_id = config.get('company_id')
+        # Normalize empty string to None for initial attempt
+        company_id = None if (original_company_id is None or original_company_id == '') else original_company_id
         
         payload = {
             'device_id': device_id,
@@ -223,7 +223,7 @@ class DeviceManager:
             'status': 'active',  # Use 'active' instead of 'unclaimed' - database constraint requires valid status
             'owner_user_id': None,
             'location': config.get('location'),
-            'company_id': company_id,  # Will be None if invalid or empty
+            'company_id': company_id,
             'local_ip': config.get('local_ip') or self.get_local_ip(),
             'public_ip': config.get('public_ip') or self.get_public_ip(),
         }
@@ -235,13 +235,16 @@ class DeviceManager:
             return created
         except Exception as exc:
             error_msg = str(exc)
-            # If foreign key constraint violation, try without company_id
-            if 'foreign key' in error_msg.lower() or 'violates foreign key' in error_msg.lower():
-                print(f"[WARN] Foreign key constraint violation, retrying without company_id: {exc}")
-                payload['company_id'] = None
+            # If foreign key constraint violation, retry without company_id
+            # Only retry if company_id was actually set (not already None)
+            if ('foreign key' in error_msg.lower() or 'violates foreign key' in error_msg.lower()) and company_id is not None:
+                print(f"[WARN] Foreign key constraint violation with company_id={company_id}, retrying without it: {exc}")
+                # Create new payload without company_id to ensure retry uses different data
+                retry_payload = payload.copy()
+                retry_payload['company_id'] = None
                 try:
-                    result = client.table('irc_devices').insert(payload).execute()
-                    created = self._first_row(result) or payload
+                    result = client.table('irc_devices').insert(retry_payload).execute()
+                    created = self._first_row(result) or retry_payload
                     # Clear invalid company_id from config
                     config['company_id'] = None
                     self.apply_remote_metadata(created)
