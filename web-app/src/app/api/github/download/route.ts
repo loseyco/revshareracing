@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Force dynamic rendering to prevent ISR and avoid oversized page errors
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 /**
  * Proxy endpoint that downloads the latest release from GitHub and streams it to the user
  * This ensures the file downloads directly instead of navigating to GitHub
@@ -14,8 +18,8 @@ export async function GET(request: NextRequest) {
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'RevShareRacing-WebApp',
         },
-        // Cache for 5 minutes
-        next: { revalidate: 300 },
+        // Use cache-control header instead of next revalidate for dynamic routes
+        cache: 'no-store',
       }
     );
 

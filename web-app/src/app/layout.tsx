@@ -1,5 +1,5 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 
 import { SupabaseProvider } from "@/components/providers/supabase-provider";
@@ -9,8 +9,13 @@ const APP_NAME = "Rev Share Racing";
 
 export const metadata: Metadata = {
   title: APP_NAME,
-  description: "Rig management portal for Rev Share Racing.",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=5"
+  description: "Rig management portal for Rev Share Racing."
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5
 };
 
 export default function RootLayout({
