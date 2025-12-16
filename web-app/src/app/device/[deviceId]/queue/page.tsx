@@ -242,9 +242,24 @@ export default function QueuePage() {
       if (session?.user?.id) {
         const userEntry = data.queue.find((entry) => entry.user_id === session.user.id);
         if (userEntry) {
+          // Detect if user was reverted from active to waiting (service went offline)
+          if (userStatus === "active" && userEntry.status === "waiting") {
+            setMessage("⚠️ PC service went offline before you started driving. You've been moved back to waiting. Please try again when the service is back online.");
+            setError(null);
+          }
+          // Detect if user was removed from queue (service offline > 3 minutes)
+          if (userStatus === "waiting" && !userEntry) {
+            setMessage("⚠️ PC service has been offline for more than 3 minutes. You've been removed from the queue. Please join again when the service is back online.");
+            setError(null);
+          }
           setUserPosition(userEntry.position);
           setUserStatus(userEntry.status);
         } else {
+          // User was in queue but now not found - might have been removed due to service offline
+          if (userStatus === "waiting") {
+            setMessage("⚠️ PC service has been offline for more than 3 minutes. You've been removed from the queue. Please join again when the service is back online.");
+            setError(null);
+          }
           setUserPosition(null);
           setUserStatus(null);
         }
@@ -315,10 +330,13 @@ export default function QueuePage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to join queue");
+        const errorMsg = data.error || "Failed to join queue";
+        const reason = data.reason || "";
+        throw new Error(reason ? `${errorMsg}: ${reason}` : errorMsg);
       }
 
       setMessage(data.message || "Successfully joined the queue!");
+      setError(null);
       await fetchQueue(); // Refresh queue
     } catch (err) {
       console.error("[handleJoinQueue] Error:", err);
@@ -584,14 +602,29 @@ export default function QueuePage() {
   const activeEntry = queueData?.active;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8">
+    <div className="mx-auto max-w-4xl space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-8">
       {/* Header */}
       <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-white">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white">
           {queueData?.device?.device_name || `Rig ${deviceId}`}
         </h1>
-        <p className="text-slate-400">Drive Queue</p>
+        <p className="text-slate-400 text-sm sm:text-base">Drive Queue</p>
       </div>
+
+      {/* Service Status Warning */}
+      {!iracingStatus?.canExecuteCommands && iracingStatus?.reason?.includes("offline") && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
+          <p className="text-red-400 font-semibold">
+            ⚠️ PC Service Offline
+          </p>
+          <p className="text-red-300/80 text-sm mt-1">
+            {iracingStatus.reason}. You cannot join the queue or activate until the service is back online.
+            {userStatus === "waiting" && (
+              <span className="block mt-2">If the service remains offline for more than 3 minutes, you will be automatically removed from the queue.</span>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Messages */}
       {message && (
@@ -608,10 +641,10 @@ export default function QueuePage() {
 
       {/* User Status */}
       {session && userPosition !== null && (
-        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-blue-400 font-semibold">
+        <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-blue-400 font-semibold text-sm sm:text-base">
                 {userStatus === "active"
                   ? "🎮 Your turn to drive!"
                   : `You're #${userPosition} in queue`}
@@ -645,6 +678,11 @@ export default function QueuePage() {
               )}
               {userStatus === "active" && (
                 <div className="mt-1 space-y-1">
+                  {!iracingStatus?.canExecuteCommands && iracingStatus?.reason?.includes("offline") && (
+                    <p className="text-sm text-red-400 font-semibold">
+                      ⚠️ PC service is offline. You'll be moved back to waiting if you haven't started driving yet.
+                    </p>
+                  )}
                   {timedSessionActive && timedSessionRemaining !== null ? (
                     <p className="text-sm text-green-300">
                       ⏱️ Your session: <span className="font-mono font-bold">{formatTime(timedSessionRemaining)}</span> remaining
@@ -708,12 +746,12 @@ export default function QueuePage() {
                 </div>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
               {userStatus === "active" && (
                 <button
                   onClick={handleLeaveQueue}
                   disabled={leaving}
-                  className="px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
                   title="End your driving session and leave the queue"
                 >
                   {leaving ? "Ending..." : "End Session"}
@@ -728,7 +766,7 @@ export default function QueuePage() {
                     timedSessionActive || 
                     iracingStatus?.carState?.inCar === true
                   }
-                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
                   title={
                     !iracingStatus?.canExecuteCommands
                       ? iracingStatus?.reason || "iRacing not connected - cannot drive"
@@ -746,7 +784,7 @@ export default function QueuePage() {
                 <button
                   onClick={handleLeaveQueue}
                   disabled={leaving}
-                  className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
                 >
                   {leaving ? "Leaving..." : "Leave Queue"}
                 </button>
@@ -798,32 +836,38 @@ export default function QueuePage() {
 
       {/* Join Queue Button */}
       {session && userPosition === null && (
-        <div className="text-center">
+        <div className="text-center space-y-2">
           <button
             onClick={handleJoinQueue}
-            disabled={joining}
-            className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={joining || !iracingStatus?.canExecuteCommands}
+            className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
+            title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "Service unavailable" : "Join the queue to drive"}
           >
             {joining ? "Joining..." : "Join Queue"}
           </button>
+          {!iracingStatus?.canExecuteCommands && (
+            <p className="text-xs sm:text-sm text-yellow-400">
+              ⚠️ {iracingStatus?.reason || "Service unavailable - cannot join queue"}
+            </p>
+          )}
         </div>
       )}
 
       {!session && (
         <div className="text-center space-y-4">
-          <p className="text-slate-300">
+          <p className="text-slate-300 text-sm sm:text-base">
             Please log in or register to join the queue
           </p>
-          <div className="flex gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <Link
               href={`/auth/login?redirectTo=/device/${deviceId}/queue`}
-              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors text-sm sm:text-base w-full sm:w-auto text-center"
             >
               Log In
             </Link>
             <Link
               href={`/auth/register?redirectTo=/device/${deviceId}/queue`}
-              className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors"
+              className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors text-sm sm:text-base w-full sm:w-auto text-center"
             >
               Register
             </Link>
@@ -832,13 +876,13 @@ export default function QueuePage() {
       )}
 
       {/* Queue List */}
-      <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">
+      <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 sm:p-6">
+        <h2 className="text-lg sm:text-xl font-semibold text-white mb-3 sm:mb-4">
           Queue ({waitingQueue.length} {waitingQueue.length === 1 ? "person" : "people"} waiting)
         </h2>
 
         {waitingQueue.length === 0 ? (
-          <p className="text-slate-400 text-center py-8">
+          <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">
             No one in queue. Be the first to join!
           </p>
         ) : (
@@ -848,15 +892,15 @@ export default function QueuePage() {
               return (
                 <div
                   key={entry.id}
-                  className={`flex items-center justify-between p-4 rounded-lg ${
+                  className={`flex items-center justify-between p-3 sm:p-4 rounded-lg ${
                     isCurrentUser
                       ? "bg-blue-500/20 border border-blue-500/30"
                       : "bg-slate-700/50 border border-slate-600"
                   }`}
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                     <div
-                      className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
+                      className={`flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full font-bold flex-shrink-0 text-sm sm:text-base ${
                         entry.position === 1
                           ? "bg-green-500/20 text-green-400"
                           : "bg-slate-600 text-slate-300"
@@ -864,8 +908,8 @@ export default function QueuePage() {
                     >
                       {entry.position}
                     </div>
-                    <div>
-                      <p className="text-white font-medium">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white font-medium text-sm sm:text-base truncate">
                         {entry.irc_user_profiles?.display_name ||
                           entry.irc_user_profiles?.email ||
                           "Driver"}
@@ -873,7 +917,7 @@ export default function QueuePage() {
                           <span className="ml-2 text-xs text-blue-400">(You)</span>
                         )}
                       </p>
-                      <p className="text-sm text-slate-400">
+                      <p className="text-xs sm:text-sm text-slate-400">
                         Joined {new Date(entry.joined_at).toLocaleTimeString()}
                       </p>
                       {entry.position === 1 && positionOneTimer !== null && (
@@ -890,7 +934,7 @@ export default function QueuePage() {
                     </div>
                   </div>
                   {entry.position === 1 && (
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
                       <span className="text-xs text-green-400 font-semibold">Next</span>
                       {positionOneTimer !== null && positionOneTimer <= 10 && (
                         <span className="text-xs text-red-400 font-semibold animate-pulse">⚠️ Activate now!</span>

@@ -121,8 +121,8 @@ export default function AdminDevicesPage() {
     <section className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">Devices</h1>
-          <p className="text-slate-400 text-sm md:text-base">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">Devices</h1>
+          <p className="text-slate-400 text-xs sm:text-sm md:text-base">
             Total: {total.toLocaleString()} devices
             <span className="ml-2 inline-flex items-center gap-1.5 text-xs text-emerald-400">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -130,22 +130,22 @@ export default function AdminDevicesPage() {
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilterClaimed(null)}
-            className={`btn-secondary px-4 py-2 text-sm ${filterClaimed === null ? "bg-red-500/20 border-red-500/50" : ""}`}
+            className={`btn-secondary px-3 sm:px-4 py-2 text-xs sm:text-sm ${filterClaimed === null ? "bg-red-500/20 border-red-500/50" : ""}`}
           >
             All
           </button>
           <button
             onClick={() => setFilterClaimed("true")}
-            className={`btn-secondary px-4 py-2 text-sm ${filterClaimed === "true" ? "bg-red-500/20 border-red-500/50" : ""}`}
+            className={`btn-secondary px-3 sm:px-4 py-2 text-xs sm:text-sm ${filterClaimed === "true" ? "bg-red-500/20 border-red-500/50" : ""}`}
           >
             Claimed
           </button>
           <button
             onClick={() => setFilterClaimed("false")}
-            className={`btn-secondary px-4 py-2 text-sm ${filterClaimed === "false" ? "bg-red-500/20 border-red-500/50" : ""}`}
+            className={`btn-secondary px-3 sm:px-4 py-2 text-xs sm:text-sm ${filterClaimed === "false" ? "bg-red-500/20 border-red-500/50" : ""}`}
           >
             Unclaimed
           </button>
@@ -161,64 +161,66 @@ export default function AdminDevicesPage() {
         </div>
       )}
 
-      <div className="glass rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-800/50 border-b border-slate-700/50">
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Device</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Location</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Owner</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Last Seen</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50">
-              {devices.map((device) => (
-                <tr key={device.device_id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-white">{device.device_name || "Unnamed"}</div>
-                    <div className="text-xs font-mono text-slate-400">{device.device_id}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`badge ${
-                      device.claimed && device.iracing_connected === true && isServiceOnline(device.last_seen)
-                        ? "badge-success"
-                        : device.claimed
-                        ? "badge-warning"
-                        : "badge-info"
-                    }`}>
-                      {device.claimed 
-                        ? (device.iracing_connected === true && isServiceOnline(device.last_seen) ? "Active" : "Inactive")
-                        : "Unclaimed"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-slate-300">{device.location || "N/A"}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-xs font-mono text-slate-400">
-                      {device.owner_user_id ? device.owner_user_id.substring(0, 8) + "..." : "N/A"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-slate-300">
-                      {device.last_seen ? new Date(device.last_seen).toLocaleString() : "Never"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Link
-                      href={`/device/${device.device_id}/details`}
-                      className="btn-secondary px-3 py-1.5 text-xs"
-                    >
-                      View
-                    </Link>
-                  </td>
+      <div className="glass rounded-xl sm:rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto -mx-3 sm:mx-0">
+          <div className="inline-block min-w-full align-middle">
+            <table className="w-full min-w-[700px]">
+              <thead className="bg-slate-800/50 border-b border-slate-700/50">
+                <tr>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Device</th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Status</th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden md:table-cell">Location</th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden lg:table-cell">Owner</th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden sm:table-cell">Last Seen</th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {devices.map((device) => (
+                  <tr key={device.device_id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-3 sm:px-6 py-3 sm:py-4">
+                      <div className="text-xs sm:text-sm font-medium text-white truncate max-w-[150px]">{device.device_name || "Unnamed"}</div>
+                      <div className="text-[10px] sm:text-xs font-mono text-slate-400 truncate max-w-[150px]">{device.device_id}</div>
+                    </td>
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                      <span className={`badge text-xs ${
+                        device.claimed && device.iracing_connected === true && isServiceOnline(device.last_seen)
+                          ? "badge-success"
+                          : device.claimed
+                          ? "badge-warning"
+                          : "badge-info"
+                      }`}>
+                        {device.claimed 
+                          ? (device.iracing_connected === true && isServiceOnline(device.last_seen) ? "Active" : "Inactive")
+                          : "Unclaimed"}
+                      </span>
+                    </td>
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden md:table-cell">
+                      <div className="text-xs sm:text-sm text-slate-300 truncate max-w-[120px]">{device.location || "N/A"}</div>
+                    </td>
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden lg:table-cell">
+                      <div className="text-xs font-mono text-slate-400">
+                        {device.owner_user_id ? device.owner_user_id.substring(0, 8) + "..." : "N/A"}
+                      </div>
+                    </td>
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden sm:table-cell">
+                      <div className="text-xs sm:text-sm text-slate-300">
+                        {device.last_seen ? new Date(device.last_seen).toLocaleString() : "Never"}
+                      </div>
+                    </td>
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                      <Link
+                        href={`/device/${device.device_id}/details`}
+                        className="btn-secondary px-2 sm:px-3 py-1 sm:py-1.5 text-xs"
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {devices.length === 0 && !loading && (
@@ -229,22 +231,22 @@ export default function AdminDevicesPage() {
 
         {/* Pagination */}
         {total > limit && (
-          <div className="px-6 py-4 border-t border-slate-800/50 flex items-center justify-between">
-            <div className="text-sm text-slate-400">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-800/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
+            <div className="text-xs sm:text-sm text-slate-400">
               Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total}
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="btn-secondary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-secondary px-3 sm:px-4 py-2 text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={page * limit >= total}
-                className="btn-secondary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-secondary px-3 sm:px-4 py-2 text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>

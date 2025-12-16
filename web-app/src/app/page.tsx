@@ -39,29 +39,29 @@ function HomePageContent() {
   const downloadUrl = "https://github.com/loseyco/revshareracing/releases/download/1.0.0/RevShareRacing.exe";
 
   return (
-    <div className="flex flex-col items-center min-h-[60vh] space-y-8 px-4 py-8 w-full max-w-7xl mx-auto">
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl md:text-5xl font-bold text-white gradient-text">Rev Share Racing</h1>
-        <p className="text-slate-400 text-lg">Connect your iRacing rig to the cloud</p>
+    <div className="flex flex-col items-center min-h-[60vh] space-y-6 sm:space-y-8 px-3 sm:px-4 py-6 sm:py-8 w-full max-w-7xl mx-auto">
+      <div className="text-center space-y-3 sm:space-y-4">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white gradient-text">Rev Share Racing</h1>
+        <p className="text-slate-400 text-base sm:text-lg">Connect your iRacing rig to the cloud</p>
       </div>
 
       {/* Download Section */}
-      <div className="glass rounded-2xl p-8 max-w-2xl w-full text-center space-y-6">
+      <div className="glass rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-2xl w-full text-center space-y-4 sm:space-y-6">
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-white">Download PC Service</h2>
-          <p className="text-slate-400">
+          <h2 className="text-xl sm:text-2xl font-bold text-white">Download PC Service</h2>
+          <p className="text-slate-400 text-sm sm:text-base">
             Get the latest version of the Rev Share Racing PC Service
           </p>
         </div>
         
         <a
           href={downloadUrl}
-          className="btn-primary inline-flex items-center gap-2 text-lg px-8 py-4"
+          className="btn-primary inline-flex items-center gap-2 text-base sm:text-lg px-6 sm:px-8 py-3 sm:py-4 w-full sm:w-auto justify-center"
         >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <span>Download Latest Release (v1.0.0)</span>
+          <span className="whitespace-nowrap">Download Latest Release (v1.0.0)</span>
         </a>
         
         <p className="text-xs text-slate-500">
@@ -70,22 +70,22 @@ function HomePageContent() {
       </div>
       
       {/* Auth Section */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:gap-4 w-full sm:w-auto">
         {loading ? (
-          <div className="flex items-center gap-2 text-slate-400">
+          <div className="flex items-center gap-2 text-slate-400 justify-center">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-500 border-t-transparent"></div>
             <span>Loading...</span>
           </div>
         ) : session ? (
-          <Link href="/dashboard" className="btn-primary text-center">
+          <Link href="/dashboard" className="btn-primary text-center w-full sm:w-auto">
             Go to Dashboard
           </Link>
         ) : (
-          <div className="flex flex-col gap-4">
-            <Link href="/auth/login" className="btn-primary text-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto">
+            <Link href="/auth/login" className="btn-primary text-center w-full sm:w-auto">
               Sign In
             </Link>
-            <Link href="/auth/register" className="btn-secondary text-center">
+            <Link href="/auth/register" className="btn-secondary text-center w-full sm:w-auto">
               Register
             </Link>
           </div>

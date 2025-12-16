@@ -165,21 +165,24 @@ export function RigMap() {
             : "Offline";
       
       const popupContent = `
-        <div style="min-width: 200px;">
-          <div style="font-weight: bold; margin-bottom: 4px;">${rig.device_name || rig.device_id}</div>
-          <div style="font-size: 0.875rem; color: #6b7280; margin-bottom: 8px;">${location}</div>
-          <div style="font-size: 0.75rem; margin-bottom: 4px;">
+        <div style="min-width: 180px; max-width: 250px;">
+          <div style="font-weight: bold; margin-bottom: 4px; font-size: 0.9rem; word-wrap: break-word;">${rig.device_name || rig.device_id}</div>
+          <div style="font-size: 0.75rem; color: #6b7280; margin-bottom: 8px; word-wrap: break-word;">${location}</div>
+          <div style="font-size: 0.7rem; margin-bottom: 4px;">
             <span style="color: ${iconColor};">●</span> ${statusText}
           </div>
           <a href="/device/${rig.device_id}${rig.claimed ? '/details' : ''}" style="
             display: inline-block;
             margin-top: 8px;
-            padding: 4px 12px;
+            padding: 6px 12px;
             background-color: #dc2626;
             color: white;
             text-decoration: none;
             border-radius: 4px;
-            font-size: 0.875rem;
+            font-size: 0.8rem;
+            text-align: center;
+            width: 100%;
+            box-sizing: border-box;
           ">${rig.claimed ? 'View Details' : 'Claim Device'}</a>
         </div>
       `;
@@ -278,10 +281,10 @@ export function RigMap() {
 
   if (loading) {
     return (
-      <div className="glass rounded-2xl p-8 w-full">
-        <div className="flex items-center justify-center h-96">
-          <div className="flex items-center gap-2 text-slate-400">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-red-500 border-t-transparent"></div>
+      <div className="glass rounded-xl sm:rounded-2xl p-6 sm:p-8 w-full">
+        <div className="flex items-center justify-center h-64 sm:h-96">
+          <div className="flex items-center gap-2 text-slate-400 text-sm sm:text-base">
+            <div className="h-4 w-4 sm:h-5 sm:w-5 animate-spin rounded-full border-2 border-red-500 border-t-transparent"></div>
             <span>Loading rig locations...</span>
           </div>
         </div>
@@ -291,17 +294,17 @@ export function RigMap() {
 
   if (error) {
     return (
-      <div className="glass rounded-2xl p-8 w-full">
-        <div className="text-center text-slate-400">{error}</div>
+      <div className="glass rounded-xl sm:rounded-2xl p-6 sm:p-8 w-full">
+        <div className="text-center text-slate-400 text-sm sm:text-base">{error}</div>
       </div>
     );
   }
 
   if (rigs.length === 0) {
     return (
-      <div className="glass rounded-2xl p-8 w-full">
-        <h2 className="text-2xl font-bold text-white mb-4">Rig Locations</h2>
-        <div className="text-center text-slate-400 py-12">
+      <div className="glass rounded-xl sm:rounded-2xl p-6 sm:p-8 w-full">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-4">Rig Locations</h2>
+        <div className="text-center text-slate-400 py-8 sm:py-12 text-sm sm:text-base">
           No rigs with location data available yet
         </div>
       </div>
@@ -309,17 +312,17 @@ export function RigMap() {
   }
 
   return (
-    <div className="glass rounded-2xl p-6 w-full">
-      <div className="mb-4">
-        <h2 className="text-2xl font-bold text-white mb-2">Rig Locations</h2>
-        <p className="text-slate-400 text-sm">
+    <div className="glass rounded-xl sm:rounded-2xl p-4 sm:p-6 w-full">
+      <div className="mb-3 sm:mb-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">Rig Locations</h2>
+        <p className="text-slate-400 text-xs sm:text-sm">
           {rigs.length} {rigs.length === 1 ? "rig" : "rigs"} with location data
         </p>
       </div>
       <div
         ref={mapContainerRef}
-        className="w-full rounded-xl"
-        style={{ height: "500px", zIndex: 0 }}
+        className="w-full rounded-lg sm:rounded-xl"
+        style={{ height: "300px", zIndex: 0 }}
       />
       <style jsx global>{`
         .custom-marker {

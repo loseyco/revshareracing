@@ -120,7 +120,7 @@ export default function LeaderboardsPage() {
 
       {/* Filters */}
       <div className="glass rounded-xl p-4 sm:p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">
               Filter by Track
@@ -186,102 +186,104 @@ export default function LeaderboardsPage() {
       </div>
 
       {/* Leaderboard Table */}
-      <div className="glass rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-800/50 border-b border-slate-700/50">
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Rank
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Driver
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Rig
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Track
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Layout
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Car
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Best Lap Time
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Total Laps
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Record Date
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50">
-              {sortedLeaderboards.length === 0 ? (
+      <div className="glass rounded-xl sm:rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto -mx-3 sm:mx-0">
+          <div className="inline-block min-w-full align-middle">
+            <table className="w-full min-w-[800px]">
+              <thead className="bg-slate-800/50 border-b border-slate-700/50">
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center">
-                    <p className="text-slate-400">No records found</p>
-                  </td>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Rank
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Driver
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden md:table-cell">
+                    Rig
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Track
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden lg:table-cell">
+                    Layout
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Car
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                    Best Lap Time
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden sm:table-cell">
+                    Total Laps
+                  </th>
+                  <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider hidden lg:table-cell">
+                    Record Date
+                  </th>
                 </tr>
-              ) : (
-                sortedLeaderboards.map((entry, index) => (
-                  <tr
-                    key={`${entry.track_id}-${entry.track_config || "default"}-${entry.car_id}`}
-                    className="hover:bg-slate-800/30 transition-colors"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-bold text-slate-300">
-                        #{index + 1}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">
-                        {entry.driver_name || entry.driver_email || <span className="text-slate-500 italic">Unknown</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-300">
-                        {entry.device_name || <span className="text-slate-500 italic">Unknown Rig</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">{entry.track_id}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-300">
-                        {entry.track_config || <span className="text-slate-500 italic">Default</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-300">{entry.car_id}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-mono text-red-400 font-bold">
-                        {formatLapTime(entry.best_lap_time)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-300">{entry.lap_count.toLocaleString()}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-slate-400">
-                        {new Date(entry.best_lap_timestamp).toLocaleDateString()}
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {sortedLeaderboards.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-12 text-center">
+                      <p className="text-slate-400">No records found</p>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  sortedLeaderboards.map((entry, index) => (
+                    <tr
+                      key={`${entry.track_id}-${entry.track_config || "default"}-${entry.car_id}`}
+                      className="hover:bg-slate-800/30 transition-colors"
+                    >
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                        <div className="text-xs sm:text-sm font-bold text-slate-300">
+                          #{index + 1}
+                        </div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4">
+                        <div className="text-xs sm:text-sm font-medium text-white truncate max-w-[120px] sm:max-w-none">
+                          {entry.driver_name || entry.driver_email || <span className="text-slate-500 italic">Unknown</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden md:table-cell">
+                        <div className="text-xs sm:text-sm text-slate-300 truncate max-w-[100px]">
+                          {entry.device_name || <span className="text-slate-500 italic">Unknown Rig</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4">
+                        <div className="text-xs sm:text-sm font-medium text-white truncate max-w-[100px] sm:max-w-none">{entry.track_id}</div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden lg:table-cell">
+                        <div className="text-xs sm:text-sm text-slate-300 truncate max-w-[80px]">
+                          {entry.track_config || <span className="text-slate-500 italic">Default</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4">
+                        <div className="text-xs sm:text-sm text-slate-300 truncate max-w-[80px] sm:max-w-none">{entry.car_id}</div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                        <div className="text-xs sm:text-sm font-mono text-red-400 font-bold">
+                          {formatLapTime(entry.best_lap_time)}
+                        </div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden sm:table-cell">
+                        <div className="text-xs sm:text-sm text-slate-300">{entry.lap_count.toLocaleString()}</div>
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap hidden lg:table-cell">
+                        <div className="text-xs sm:text-sm text-slate-400">
+                          {new Date(entry.best_lap_timestamp).toLocaleDateString()}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {sortedLeaderboards.length > 0 && (
-          <div className="px-6 py-4 border-t border-slate-800/50">
-            <div className="text-sm text-slate-400">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-800/50">
+            <div className="text-xs sm:text-sm text-slate-400">
               Showing {sortedLeaderboards.length} record{sortedLeaderboards.length !== 1 ? "s" : ""}
             </div>
           </div>

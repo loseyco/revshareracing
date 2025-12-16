@@ -168,11 +168,11 @@ export default function AdminDashboardPage() {
   return (
     <section className="space-y-8 animate-fade-in">
       <div>
-        <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">Admin Dashboard</h1>
-        <p className="text-slate-400 text-sm md:text-base">Overview of system statistics and activity</p>
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">Admin Dashboard</h1>
+        <p className="text-slate-400 text-xs sm:text-sm md:text-base">Overview of system statistics and activity</p>
       </div>
 
-      <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {/* Users Card */}
         <Link href="/admin/users" className="card group">
           <div className="flex items-start justify-between mb-4">

@@ -77,16 +77,16 @@ export function AuthHeaderControls() {
 
   if (!session) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
         <Link
           href="/auth/login"
-          className="btn-secondary px-5 py-2.5 text-sm"
+          className="btn-secondary px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm text-center"
         >
           Login
         </Link>
         <Link
           href="/auth/register"
-          className="btn-primary px-5 py-2.5 text-sm"
+          className="btn-primary px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm text-center"
         >
           Register
         </Link>
@@ -95,12 +95,12 @@ export function AuthHeaderControls() {
   }
 
   return (
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50">
-        <div className="h-2 w-2 rounded-full bg-red-400 animate-pulse"></div>
-        <span className="text-xs text-slate-300">
-          <span className="text-slate-400">Logged in as</span>{" "}
-          <span className="font-semibold text-white">{session.user.email ?? "account"}</span>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+      <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50 w-full sm:w-auto justify-center sm:justify-start">
+        <div className="h-2 w-2 rounded-full bg-red-400 animate-pulse flex-shrink-0"></div>
+        <span className="text-xs text-slate-300 truncate">
+          <span className="text-slate-400 hidden sm:inline">Logged in as </span>
+          <span className="font-semibold text-white truncate">{session.user.email ?? "account"}</span>
         </span>
       </div>
       <Link
@@ -111,6 +111,16 @@ export function AuthHeaderControls() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
         <span>Dashboard</span>
+      </Link>
+      <Link
+        href="/profile"
+        className="btn-secondary px-3 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span className="hidden sm:inline">Profile</span>
+        <span className="sm:hidden">👤</span>
       </Link>
       <Link
         href="/leaderboards"

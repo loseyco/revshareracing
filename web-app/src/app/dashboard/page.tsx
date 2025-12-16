@@ -120,22 +120,22 @@ export default function DashboardPage() {
     <section className="space-y-8 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">My Rigs</h1>
-          <p className="text-slate-400 text-sm md:text-base">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 gradient-text">My Rigs</h1>
+          <p className="text-slate-400 text-xs sm:text-sm md:text-base">
             Manage your claimed rigs and monitor their status in real-time
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div className="flex flex-col items-start sm:items-center gap-3">
           <a
             href={downloadUrl}
-            className="btn-primary inline-flex items-center gap-2 text-sm px-5 py-2.5 whitespace-nowrap"
+            className="btn-primary inline-flex items-center gap-2 text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 whitespace-nowrap w-full sm:w-auto justify-center"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             <span>Download Latest Client</span>
           </a>
-          <p className="text-xs sm:text-sm text-slate-500">
+          <p className="text-xs text-slate-500 text-center sm:text-left">
             To claim a rig, use the "Claim This Rig" button from the PC service
           </p>
         </div>
@@ -151,22 +151,22 @@ export default function DashboardPage() {
       )}
 
       {devices.length === 0 ? (
-        <div className="glass rounded-2xl p-12 md:p-16 text-center">
-          <div className="inline-flex h-16 w-16 md:h-20 md:w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30 mb-6">
-            <svg className="w-8 h-8 md:w-10 md:h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="glass rounded-xl sm:rounded-2xl p-8 sm:p-12 md:p-16 text-center">
+          <div className="inline-flex h-12 w-12 sm:h-16 sm:w-16 md:h-20 md:w-20 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30 mb-4 sm:mb-6">
+            <svg className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
             </svg>
           </div>
-          <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">No rigs claimed yet</h2>
-          <p className="text-slate-400 mb-8 max-w-md mx-auto text-sm md:text-base">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-3">No rigs claimed yet</h2>
+          <p className="text-slate-400 mb-6 sm:mb-8 max-w-md mx-auto text-xs sm:text-sm md:text-base px-4">
             Get started by claiming your first rig from the PC service. Once claimed, you'll be able to monitor and manage it from here.
           </p>
-          <p className="text-sm text-slate-400">
+          <p className="text-xs sm:text-sm text-slate-400 px-4">
             To claim a rig, use the "Claim This Rig" button from the PC service application.
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
           {devices.map((device, index) => (
             <div
               key={device.device_id}
@@ -175,18 +175,18 @@ export default function DashboardPage() {
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-3xl group-hover:bg-red-500/10 transition-colors" />
               <div className="relative z-10">
-                <div className="flex items-start justify-between mb-6">
-                  <div className="flex items-start gap-4 flex-1 min-w-0">
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30">
-                      <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-start justify-between mb-4 sm:mb-6">
+                  <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
+                    <div className="flex h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30">
+                      <svg className="w-5 h-5 sm:w-6 sm:h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                       </svg>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-lg md:text-xl font-bold text-white mb-1 truncate">
+                      <h3 className="text-base sm:text-lg md:text-xl font-bold text-white mb-1 truncate">
                         {device.device_name || "Unnamed Rig"}
                       </h3>
-                      <p className="text-xs text-slate-400 font-mono truncate">{device.device_id}</p>
+                      <p className="text-[10px] sm:text-xs text-slate-400 font-mono truncate">{device.device_id}</p>
                     </div>
                   </div>
                   <span
@@ -204,43 +204,43 @@ export default function DashboardPage() {
                   </span>
                 </div>
 
-                <div className="space-y-3 mb-6 p-4 rounded-xl bg-slate-950/50 border border-slate-800/50">
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className="text-slate-500 w-20 flex-shrink-0 text-xs">Laps</span>
+                <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6 p-3 sm:p-4 rounded-lg sm:rounded-xl bg-slate-950/50 border border-slate-800/50">
+                  <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                    <span className="text-slate-500 w-16 sm:w-20 flex-shrink-0 text-[10px] sm:text-xs">Laps</span>
                     <span className="text-red-400 font-bold">{device.lap_count?.toLocaleString() || 0}</span>
                   </div>
                   {device.location && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-slate-500 w-20 flex-shrink-0 text-xs">Location</span>
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                      <span className="text-slate-500 w-16 sm:w-20 flex-shrink-0 text-[10px] sm:text-xs">Location</span>
                       <span className="text-slate-200 font-medium truncate">{device.location}</span>
                     </div>
                   )}
                   {device.local_ip && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-slate-500 w-20 flex-shrink-0 text-xs">Local IP</span>
-                      <span className="text-slate-200 font-mono text-xs md:text-sm truncate">{device.local_ip}</span>
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                      <span className="text-slate-500 w-16 sm:w-20 flex-shrink-0 text-[10px] sm:text-xs">Local IP</span>
+                      <span className="text-slate-200 font-mono text-[10px] sm:text-xs md:text-sm truncate">{device.local_ip}</span>
                     </div>
                   )}
                   {device.public_ip && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-slate-500 w-20 flex-shrink-0 text-xs">Public IP</span>
-                      <span className="text-slate-200 font-mono text-xs md:text-sm truncate">{device.public_ip}</span>
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                      <span className="text-slate-500 w-16 sm:w-20 flex-shrink-0 text-[10px] sm:text-xs">Public IP</span>
+                      <span className="text-slate-200 font-mono text-[10px] sm:text-xs md:text-sm truncate">{device.public_ip}</span>
                     </div>
                   )}
                   {device.last_seen && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-slate-500 w-20 flex-shrink-0 text-xs">Last seen</span>
-                      <span className="text-slate-200 text-xs md:text-sm">{new Date(device.last_seen).toLocaleString()}</span>
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                      <span className="text-slate-500 w-16 sm:w-20 flex-shrink-0 text-[10px] sm:text-xs">Last seen</span>
+                      <span className="text-slate-200 text-[10px] sm:text-xs md:text-sm">{new Date(device.last_seen).toLocaleString()}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-800/50">
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-slate-800/50">
                   <Link
                     href={`/device/${device.device_id}/details`}
-                    className="btn-secondary flex-1 text-center text-sm"
+                    className="btn-secondary flex-1 text-center text-xs sm:text-sm"
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span>View Details</span>
