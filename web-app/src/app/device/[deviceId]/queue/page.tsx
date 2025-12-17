@@ -73,6 +73,7 @@ export default function QueuePage() {
     updateAvailable: boolean;
     isUpToDate: boolean | null;
     isServiceOnline: boolean;
+    downloadUrl?: string | null;
   } | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const iracingPollIntervalRef = useRef<NodeJS.Timeout | null>(null);

@@ -114,7 +114,7 @@ export async function POST(
         });
         
         // If RPC function doesn't exist, use direct update (fallback)
-        if (deductError && deductError.message?.includes('function') || deductError.code === '42883') {
+        if (deductError && (deductError.message?.includes('function') || deductError.code === '42883')) {
           console.log(`[timed-session API] RPC function not available, using direct update`);
           
           // Get current credits
