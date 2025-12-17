@@ -13,7 +13,7 @@ from typing import Dict, Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core import device, telemetry, laps, controls, command_queue, graphics
+from core import device, telemetry, laps, controls, command_queue, graphics, updater
 from config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 from supabase import create_client
 
@@ -90,7 +90,68 @@ class RigService:
         self._last_reset_time = 0
         # Timed session state for queue drivers
         self.timed_session_state = None  # {active: bool, waitingForMovement: bool, startTime: int, duration: int, driver_user_id: str}
+        # Auto-updater
+        self.updater = updater.get_updater()
+        self._setup_updater()
         self._setup_device()
+    
+    def _setup_updater(self):
+        """Setup updater callbacks for automatic download and installation"""
+        # Log current version on startup
+        from core import updater
+        print(f"[UPDATER] Current PC Service version: {updater.CURRENT_VERSION}")
+        
+        def on_update_available(update_info):
+            """Called when an update is available"""
+            print(f"[UPDATER] ========================================")
+            print(f"[UPDATER] UPDATE AVAILABLE!")
+            print(f"[UPDATER] Current version: {update_info['currentVersion']}")
+            print(f"[UPDATER] Latest version: {update_info['version']}")
+            print(f"[UPDATER] Starting automatic download and installation...")
+            print(f"[UPDATER] ========================================")
+            
+            # Automatically download the update
+            if self.updater.download_update():
+                print("[UPDATER] Download complete. Preparing to install...")
+                # Auto-install after a short delay to let user see the message
+                def install_after_delay():
+                    time.sleep(5)  # Wait 5 seconds before installing (reduced from 10)
+                    print("[UPDATER] Installing update and restarting service...")
+                    print("[UPDATER] Service will restart automatically in a few seconds...")
+                    if getattr(sys, 'frozen', False):
+                        # Get the update file path (it was saved during download)
+                        exe_path = Path(sys.executable)
+                        update_file = exe_path.parent / "RevShareRacing_new.exe"
+                        if update_file.exists():
+                            self.updater.install_update(str(update_file), restart=True)
+                        else:
+                            print(f"[UPDATER] ERROR: Update file not found at {update_file}")
+                    else:
+                        print("[UPDATER] Auto-update only works for compiled executables")
+                        print("[UPDATER] Please manually update when running from source")
+                
+                # Auto-install in background
+                threading.Thread(target=install_after_delay, daemon=True).start()
+            else:
+                print("[UPDATER] ERROR: Download failed. Please update manually.")
+                print(f"[UPDATER] Download URL: {update_info.get('downloadUrl', 'N/A')}")
+        
+        def on_download_progress(progress, downloaded, total):
+            """Called during download to show progress"""
+            if int(progress) % 10 == 0:  # Log every 10%
+                mb_downloaded = downloaded / (1024 * 1024)
+                mb_total = total / (1024 * 1024) if total > 0 else 0
+                print(f"[UPDATER] Download progress: {progress:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)")
+        
+        def on_update_complete(update_file_path):
+            """Called when download is complete"""
+            print(f"[UPDATER] Update downloaded successfully: {update_file_path}")
+            print(f"[UPDATER] Installation will begin in 5 seconds...")
+        
+        # Set callbacks
+        self.updater.on_update_available = on_update_available
+        self.updater.on_download_progress = on_download_progress
+        self.updater.on_update_complete = on_update_complete
     
     def _setup_device(self):
         """Ensure a device identifier is available and log management URL."""
@@ -548,6 +609,30 @@ class RigService:
         
         # Push initial state in background thread (non-blocking)
         threading.Thread(target=push_initial_state, daemon=True).start()
+        
+        # Start auto-update checking (only for compiled executables)
+        if getattr(sys, 'frozen', False):
+            print("[UPDATER] Auto-update enabled (compiled executable detected)")
+            # Check for updates on startup (after a delay to not slow down startup)
+            def check_updates_on_startup():
+                time.sleep(15)  # Wait 15 seconds after startup (reduced from 30)
+                print("[UPDATER] Checking for updates...")
+                update_info = self.updater.check_for_updates()
+                if update_info:
+                    print(f"[UPDATER] New version detected: {update_info['version']}")
+                    print(f"[UPDATER] Auto-update will begin automatically...")
+                else:
+                    from core import updater
+                    print(f"[UPDATER] Already on latest version: {updater.CURRENT_VERSION}")
+            
+            threading.Thread(target=check_updates_on_startup, daemon=True).start()
+            # Start periodic checking (every hour)
+            self.updater.start_periodic_check()
+            print(f"[UPDATER] Periodic update check started (every {self.updater.update_check_interval}s)")
+        else:
+            from core import updater
+            print("[UPDATER] Auto-update disabled (running from source)")
+            print(f"[UPDATER] Current version: {updater.CURRENT_VERSION}")
     
     def get_status(self):
         """Get service status for GUI"""
@@ -965,13 +1050,25 @@ class RigService:
             
             # Heartbeat only updates service health (last_seen and connection status)
             # Telemetry updates are handled by _check_and_push_state_changes() on state changes
+            current_time = time.time()
             update_data = {
                 'last_seen': now,
                 'iracing_connected': iracing_connected,
             }
             
+            # Include version in heartbeat (update periodically, not every heartbeat to reduce DB writes)
+            # Update version every 5 minutes (same interval as IP updates)
+            if not hasattr(self, '_last_version_update'):
+                self._last_version_update = 0
+            if (current_time - self._last_version_update) >= self.ip_update_interval:
+                try:
+                    from core import updater
+                    update_data['pc_service_version'] = updater.CURRENT_VERSION
+                    self._last_version_update = current_time
+                except Exception as e:
+                    print(f"[WARN] Failed to get version for heartbeat: {e}")
+            
             # Update IP addresses periodically (every 5 minutes)
-            current_time = time.time()
             if (current_time - self._last_ip_update) >= self.ip_update_interval:
                 try:
                     from core import device

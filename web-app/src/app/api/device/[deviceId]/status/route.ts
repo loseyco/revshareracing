@@ -22,7 +22,7 @@ export async function GET(
     // Use .maybeSingle() to avoid caching issues and ensure fresh data
     const { data: device, error: deviceError } = await supabase
       .from("irc_devices")
-      .select("device_id, status, last_seen, claimed, iracing_connected, in_car, speed_kph, rpm, track_name, car_name, current_lap, in_pit_stall, engine_running")
+      .select("device_id, status, last_seen, claimed, iracing_connected, in_car, speed_kph, rpm, track_name, car_name, current_lap, in_pit_stall, engine_running, pc_service_version")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -123,6 +123,7 @@ export async function GET(
       telemetry: telemetry,
       lastSeen: device.last_seen,
       timeSinceLastSeen: timeSinceLastSeen,
+      pcServiceVersion: device.pc_service_version || null,
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

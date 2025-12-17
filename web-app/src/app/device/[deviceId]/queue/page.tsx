@@ -67,6 +67,13 @@ export default function QueuePage() {
     speedKph: number | null;
   } | null>(null);
   const [positionOneTimer, setPositionOneTimer] = useState<number | null>(null);
+  const [versionInfo, setVersionInfo] = useState<{
+    currentVersion: string | null;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    isUpToDate: boolean | null;
+    isServiceOnline: boolean;
+  } | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const iracingPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const positionOneTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -224,6 +231,19 @@ export default function QueuePage() {
       }
     } catch (err) {
       console.error("[fetchIracingStatus] Error:", err);
+    }
+  };
+
+  // Fetch version info
+  const fetchVersionInfo = async () => {
+    try {
+      const response = await fetch(`/api/device/${deviceId}/version?_t=${Date.now()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setVersionInfo(data);
+      }
+    } catch (err) {
+      console.error("[fetchVersionInfo] Error:", err);
     }
   };
 
@@ -484,6 +504,7 @@ export default function QueuePage() {
     fetchQueue();
     fetchIracingStatus();
     fetchTimedSession();
+    fetchVersionInfo();
 
     // Poll every 2 seconds for iRacing status (to detect movement faster)
     iracingPollIntervalRef.current = setInterval(() => {
@@ -504,6 +525,11 @@ export default function QueuePage() {
       fetchTimedSession();
     }, 5000);
 
+    // Poll every 60 seconds for version info (less frequent)
+    const versionInterval = setInterval(() => {
+      fetchVersionInfo();
+    }, 60000);
+
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -514,6 +540,7 @@ export default function QueuePage() {
       if (positionOneTimerRef.current) {
         clearInterval(positionOneTimerRef.current);
       }
+      clearInterval(versionInterval);
     };
   }, [deviceId, session]);
 
@@ -613,16 +640,56 @@ export default function QueuePage() {
 
       {/* Service Status Warning */}
       {!iracingStatus?.canExecuteCommands && iracingStatus?.reason?.includes("offline") && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
-          <p className="text-red-400 font-semibold">
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 sm:p-4">
+          <p className="text-red-400 font-semibold text-sm sm:text-base">
             ⚠️ PC Service Offline
           </p>
-          <p className="text-red-300/80 text-sm mt-1">
+          <p className="text-red-300/80 text-xs sm:text-sm mt-1">
             {iracingStatus.reason}. You cannot join the queue or activate until the service is back online.
             {userStatus === "waiting" && (
               <span className="block mt-2">If the service remains offline for more than 3 minutes, you will be automatically removed from the queue.</span>
             )}
           </p>
+        </div>
+      )}
+
+      {/* Version Info */}
+      {versionInfo && versionInfo.isServiceOnline && (
+        <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3 sm:p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs sm:text-sm">PC Service Version:</span>
+              <span className="text-white font-mono font-semibold text-xs sm:text-sm">
+                {versionInfo.currentVersion || "Unknown"}
+              </span>
+            </div>
+            {versionInfo.latestVersion && (
+              <div className="flex items-center gap-2">
+                {versionInfo.updateAvailable ? (
+                  <>
+                    <span className="text-yellow-400 text-xs sm:text-sm">Update Available:</span>
+                    <span className="text-yellow-300 font-mono font-semibold text-xs sm:text-sm">
+                      {versionInfo.latestVersion}
+                    </span>
+                    {versionInfo.downloadUrl && (
+                      <a
+                        href={versionInfo.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs sm:text-sm text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Download
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-green-400 text-xs sm:text-sm">✓ Up to date</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

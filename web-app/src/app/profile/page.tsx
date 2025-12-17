@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 import { useSupabase } from "@/components/providers/supabase-provider";
@@ -10,6 +10,7 @@ type Profile = {
   email: string;
   display_name?: string | null;
   role?: string;
+  credits?: number;
   created_at?: string;
 };
 
@@ -54,24 +55,14 @@ export default function ProfilePage() {
   
   // Form state
   const [displayName, setDisplayName] = useState("");
+  
+  // Credit purchase state
+  const [purchaseAmount, setPurchaseAmount] = useState("");
+  const [purchasing, setPurchasing] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState(false);
 
-  useEffect(() => {
-    if (sessionLoading) {
-      return; // Still loading, wait
-    }
-    
-    if (!session) {
-      // Redirect to login if not authenticated
-      router.push("/auth/login?redirectTo=/profile");
-      return;
-    }
-    
-    // Session exists, fetch profile and stats
-    fetchProfile();
-    fetchStats();
-  }, [session, sessionLoading, router]);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     if (!session) return;
 
     setLoading(true);
@@ -97,14 +88,17 @@ export default function ProfilePage() {
       const data = await response.json();
       setProfile(data);
       setDisplayName(data.display_name || "");
+      // Clear purchase messages when profile refreshes
+      setPurchaseError(null);
+      setPurchaseSuccess(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load profile");
     } finally {
       setLoading(false);
     }
-  };
+  }, [session, supabase]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     if (!session) return;
 
     setStatsLoading(true);
@@ -134,7 +128,72 @@ export default function ProfilePage() {
     } finally {
       setStatsLoading(false);
     }
+  }, [session, supabase]);
+
+  useEffect(() => {
+    if (sessionLoading) {
+      return; // Still loading, wait
+    }
+    
+    if (!session) {
+      // Redirect to login if not authenticated
+      router.push("/auth/login?redirectTo=/profile");
+      return;
+    }
+    
+    // Session exists, fetch profile and stats
+    fetchProfile();
+    fetchStats();
+  }, [session, sessionLoading, router, fetchProfile, fetchStats]);
+
+  const handlePurchaseCredits = async (amount: number) => {
+    if (!session || purchasing) return;
+
+    setPurchasing(true);
+    setPurchaseError(null);
+    setPurchaseSuccess(false);
+
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession?.access_token) {
+        throw new Error("No session token");
+      }
+
+      const response = await fetch("/api/credits/purchase", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${currentSession.access_token}`
+        },
+        body: JSON.stringify({ amount })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to purchase credits");
+      }
+
+      setPurchaseSuccess(true);
+      setPurchaseAmount("");
+      
+      // Refresh profile to show new balance
+      await fetchProfile();
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setPurchaseSuccess(false), 5000);
+    } catch (err) {
+      setPurchaseError(err instanceof Error ? err.message : "Failed to purchase credits");
+    } finally {
+      setPurchasing(false);
+    }
   };
+
+  const handleQuickPurchase = (amount: number) => {
+    setPurchaseAmount(amount.toString());
+    handlePurchaseCredits(amount);
+  };
+
 
   const formatLapTime = (seconds: number | null): string => {
     if (seconds === null || seconds === undefined) return "--";
@@ -284,6 +343,145 @@ export default function ProfilePage() {
             </p>
           </div>
 
+          {/* Credits Balance */}
+          <div>
+            <label htmlFor="credits" className="block text-sm font-semibold text-slate-300 mb-2">
+              Credits Balance
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                id="credits"
+                value={`${(profile.credits ?? 0).toLocaleString()} credits`}
+                disabled
+                className="input w-full bg-slate-800/50 text-slate-400 cursor-not-allowed pr-20"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                ${((profile.credits ?? 0) / 100).toFixed(2)} USD
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              1 credit = $0.01. 1-minute test session costs 100 credits ($1.00).
+            </p>
+          </div>
+
+          {/* Purchase Credits Section */}
+          <div className="border-t border-slate-700/50 pt-6 mt-6">
+            <h3 className="text-base font-semibold text-slate-300 mb-3">Purchase Credits (Free Demo)</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Get up to 1,000 credits for free to test the system. Each 1-minute session costs 100 credits.
+            </p>
+
+            {purchaseError && (
+              <div className="mb-4 rounded-lg border border-rose-500/50 bg-rose-500/10 p-3 text-sm text-rose-200">
+                {purchaseError}
+              </div>
+            )}
+
+            {purchaseSuccess && (
+              <div className="mb-4 rounded-lg border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                Credits added successfully! Your balance has been updated.
+              </div>
+            )}
+
+            {/* Quick Purchase Buttons */}
+            <div className="mb-4">
+              <p className="text-xs text-slate-400 mb-2">Quick Purchase:</p>
+              <div className="flex flex-wrap gap-2">
+                {[100, 500, 1000].map((amount) => {
+                  const currentCredits = profile.credits ?? 0;
+                  const maxFreeCredits = 1000;
+                  const availableToAdd = Math.max(0, maxFreeCredits - currentCredits);
+                  const canPurchase = availableToAdd >= amount && currentCredits < maxFreeCredits;
+                  const actualAmount = canPurchase ? amount : Math.min(amount, availableToAdd);
+                  
+                  return (
+                    <button
+                      key={amount}
+                      type="button"
+                      onClick={() => {
+                        if (canPurchase) {
+                          handleQuickPurchase(amount);
+                        } else if (availableToAdd > 0) {
+                          handleQuickPurchase(availableToAdd);
+                        }
+                      }}
+                      disabled={availableToAdd <= 0 || purchasing}
+                      className="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-300 hover:bg-slate-700/50 hover:border-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title={!canPurchase && availableToAdd > 0 ? `Only ${availableToAdd} credits available` : canPurchase ? `Add ${amount} credits` : "Maximum credits reached"}
+                    >
+                      {canPurchase ? (
+                        <>
+                          {amount} credits
+                          <span className="ml-1 text-xs text-slate-500">
+                            (${(amount / 100).toFixed(2)})
+                          </span>
+                        </>
+                      ) : availableToAdd > 0 ? (
+                        <>
+                          {availableToAdd} credits
+                          <span className="ml-1 text-xs text-slate-500">
+                            (max)
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {amount} credits
+                          <span className="ml-1 text-xs text-slate-400 line-through">
+                            (max reached)
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Amount Input */}
+            <div>
+              <label htmlFor="purchase_amount" className="block text-sm font-medium text-slate-300 mb-2">
+                Custom Amount
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  id="purchase_amount"
+                  value={purchaseAmount}
+                  onChange={(e) => setPurchaseAmount(e.target.value)}
+                  placeholder="Enter credits (1-1000)"
+                  min="1"
+                  max="1000"
+                  disabled={purchasing}
+                  className="input flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const amount = parseInt(purchaseAmount);
+                    if (amount > 0 && amount <= 1000) {
+                      handlePurchaseCredits(amount);
+                    }
+                  }}
+                  disabled={!purchaseAmount || purchasing || parseInt(purchaseAmount) <= 0 || parseInt(purchaseAmount) > 1000}
+                  className="btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {purchasing ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent mr-2 inline-block"></div>
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Credits"
+                  )}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                You can add up to {Math.max(0, 1000 - (profile.credits ?? 0))} more credits (1,000 total limit for free demo).
+              </p>
+            </div>
+          </div>
+
           {/* Account Created Date (read-only) */}
           {profile.created_at && (
             <div>
@@ -355,7 +553,23 @@ export default function ProfilePage() {
         ) : stats && stats.totalLaps > 0 ? (
           <div className="space-y-4 sm:space-y-6">
             {/* Key Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+              {/* Credits Balance */}
+              <div className="glass rounded-xl p-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-10 w-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-wider">Credits</p>
+                    <p className="text-2xl font-bold text-white">{(profile.credits ?? 0).toLocaleString()}</p>
+                    <p className="text-xs text-slate-500 mt-1">${((profile.credits ?? 0) / 100).toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Total Laps */}
               <div className="glass rounded-xl p-6">
                 <div className="flex items-center gap-3 mb-2">

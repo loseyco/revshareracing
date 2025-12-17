@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -35,8 +35,33 @@ function HomePageContent() {
     }
   }, [searchParams, supabase]);
 
-  // Direct download link to latest release
-  const downloadUrl = "https://github.com/loseyco/revshareracing/releases/download/1.0.0/RevShareRacing.exe";
+  // Fetch latest release info dynamically
+  const [downloadInfo, setDownloadInfo] = useState<{
+    downloadUrl: string;
+    version: string | null;
+    loading: boolean;
+  }>({
+    downloadUrl: "https://github.com/loseyco/revshareracing/releases/latest",
+    version: null,
+    loading: true,
+  });
+
+  useEffect(() => {
+    // Fetch latest release info
+    fetch("/api/github/latest-release")
+      .then((res) => res.json())
+      .then((data) => {
+        setDownloadInfo({
+          downloadUrl: data.downloadUrl || "https://github.com/loseyco/revshareracing/releases/latest",
+          version: data.version,
+          loading: false,
+        });
+      })
+      .catch((err) => {
+        console.error("Failed to fetch latest release:", err);
+        setDownloadInfo((prev) => ({ ...prev, loading: false }));
+      });
+  }, []);
 
   return (
     <div className="flex flex-col items-center min-h-[60vh] space-y-6 sm:space-y-8 px-3 sm:px-4 py-6 sm:py-8 w-full max-w-7xl mx-auto">
@@ -55,17 +80,24 @@ function HomePageContent() {
         </div>
         
         <a
-          href={downloadUrl}
+          href={downloadInfo.downloadUrl}
           className="btn-primary inline-flex items-center gap-2 text-base sm:text-lg px-6 sm:px-8 py-3 sm:py-4 w-full sm:w-auto justify-center"
         >
           <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <span className="whitespace-nowrap">Download Latest Release (v1.0.0)</span>
+          <span className="whitespace-nowrap">
+            {downloadInfo.loading 
+              ? "Loading..." 
+              : `Download Latest Release${downloadInfo.version ? ` (${downloadInfo.version})` : ""}`}
+          </span>
         </a>
         
         <p className="text-xs text-slate-500">
           Downloads RevShareRacing.exe (~60 MB) - No installation required
+          {downloadInfo.version && !downloadInfo.loading && (
+            <span className="block mt-1">Current version: {downloadInfo.version}</span>
+          )}
         </p>
       </div>
       

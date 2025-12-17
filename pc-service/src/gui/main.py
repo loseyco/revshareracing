@@ -178,6 +178,8 @@ class RevShareRacingGUI:
         self.device_rows = {}
         self._add_device_row(device_card, "Device ID", key="device_id")
         self._add_device_row(device_card, "Device Name", key="device_name")
+        self._add_device_row(device_card, "PC Service Version", key="pc_service_version")
+        self._add_device_row(device_card, "Update Status", key="update_status")
         self._add_device_row(device_card, "Claim Status", key="claim_status")
         self._add_device_row(device_card, "Claim Code", key="claim_code")
         self._add_device_row(device_card, "Fingerprint", key="fingerprint")
@@ -529,7 +531,6 @@ class RevShareRacingGUI:
         })
         self.device_info = merged_info
         self.portal_url = merged_info.get('portal_url')
-        self._update_device_info_labels(merged_info)
 
         # Database connection.
         database_connected = bool(supabase_info.get('connected'))
@@ -574,6 +575,9 @@ class RevShareRacingGUI:
             else:
                 self.log("[WARN] Rig returned to unclaimed state.")
             self._last_claim_state = claimed
+        
+        # Update version and update status in device info labels
+        self._update_device_info_labels(merged_info)
 
     def on_lap_recorded(self, lap_number, lap_time, lap_data):
         """Callback invoked by the service when a lap is recorded."""
@@ -617,7 +621,19 @@ class RevShareRacingGUI:
 
     def _update_device_info_labels(self, info):
         for key, label in self.device_rows.items():
-            if key == "claim_status":
+            if key == "pc_service_version":
+                # Get version from updater module
+                try:
+                    from core import updater
+                    version = updater.CURRENT_VERSION
+                    label.config(text=version, fg=self.colors['text'])
+                except Exception:
+                    label.config(text="Unknown", fg=self.colors['text_muted'])
+            elif key == "update_status":
+                # Check update status from service
+                update_status = self._get_update_status()
+                label.config(text=update_status['text'], fg=update_status['color'])
+            elif key == "claim_status":
                 claimed = bool(info.get('claimed'))
                 text = "Claimed" if claimed else "Awaiting Claim"
                 color = self.colors['success'] if claimed else self.colors['warn']
@@ -712,6 +728,34 @@ class RevShareRacingGUI:
         except Exception:
             # Silently fail for periodic checks
             pass
+    
+    def _get_update_status(self):
+        """Get update status from updater"""
+        try:
+            if not self.service:
+                return {'text': '—', 'color': self.colors['text_muted']}
+            
+            updater = getattr(self.service, 'updater', None)
+            if not updater:
+                return {'text': '—', 'color': self.colors['text_muted']}
+            
+            if updater.update_available and updater.latest_version:
+                return {
+                    'text': f"Update available: {updater.latest_version}",
+                    'color': self.colors['warn']
+                }
+            elif updater.downloading:
+                return {
+                    'text': 'Downloading update...',
+                    'color': self.colors['warn']
+                }
+            else:
+                return {
+                    'text': 'Up to date',
+                    'color': self.colors['success']
+                }
+        except Exception:
+            return {'text': '—', 'color': self.colors['text_muted']}
 
 
 def create_gui():

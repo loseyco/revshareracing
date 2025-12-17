@@ -90,6 +90,61 @@ export async function POST(
       );
     }
 
+    // Check if session is starting (becoming active) and deduct credits
+    const SESSION_COST_CREDITS = 100;
+    if (sessionState && sessionState.active === true && sessionState.driver_user_id) {
+      // Get current session state to check if it was previously inactive
+      const { data: currentDevice } = await supabase
+        .from("irc_devices")
+        .select("timed_session_state")
+        .eq("device_id", deviceId)
+        .maybeSingle();
+      
+      const currentSessionState = currentDevice?.timed_session_state;
+      const wasInactive = !currentSessionState || currentSessionState.active !== true;
+      
+      // Only deduct credits if session is transitioning from inactive to active
+      if (wasInactive) {
+        const driverUserId = sessionState.driver_user_id;
+        
+        // Deduct credits from user's account
+        const { error: deductError } = await supabase.rpc('deduct_credits', {
+          user_id_param: driverUserId,
+          amount_param: SESSION_COST_CREDITS
+        });
+        
+        // If RPC function doesn't exist, use direct update (fallback)
+        if (deductError && deductError.message?.includes('function') || deductError.code === '42883') {
+          console.log(`[timed-session API] RPC function not available, using direct update`);
+          
+          // Get current credits
+          const { data: userProfile } = await supabase
+            .from("irc_user_profiles")
+            .select("credits")
+            .eq("id", driverUserId)
+            .single();
+          
+          if (userProfile) {
+            const newCredits = Math.max(0, (userProfile.credits || 0) - SESSION_COST_CREDITS);
+            const { error: updateCreditsError } = await supabase
+              .from("irc_user_profiles")
+              .update({ credits: newCredits })
+              .eq("id", driverUserId);
+            
+            if (updateCreditsError) {
+              console.error(`[timed-session API] Error deducting credits:`, updateCreditsError);
+            } else {
+              console.log(`[timed-session API] Deducted ${SESSION_COST_CREDITS} credits from user ${driverUserId}. New balance: ${newCredits}`);
+            }
+          }
+        } else if (deductError) {
+          console.error(`[timed-session API] Error deducting credits via RPC:`, deductError);
+        } else {
+          console.log(`[timed-session API] Successfully deducted ${SESSION_COST_CREDITS} credits from user ${driverUserId}`);
+        }
+      }
+    }
+
     // Update timed session state
     // Note: This requires a `timed_session_state` JSONB column in the irc_devices table
     console.log(`[timed-session API] Updating session state for device ${deviceId}:`, sessionState);

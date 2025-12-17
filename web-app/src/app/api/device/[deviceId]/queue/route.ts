@@ -135,10 +135,10 @@ export async function GET(
       );
     }
 
-    // Get device info
+    // Get device info including last_seen and in_car status to check service health
     const { data: device, error: deviceError } = await supabase
       .from("irc_devices")
-      .select("device_id, device_name, claimed")
+      .select("device_id, device_name, claimed, last_seen, in_car, timed_session_state")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -146,11 +146,144 @@ export async function GET(
       console.error("[getQueue] Error fetching device:", deviceError);
     }
 
+    // Check if service is online
+    const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : 0;
+    const now = Date.now();
+    const timeSinceLastSeen = (now - lastSeen) / 1000; // seconds
+    const isServiceOnline = timeSinceLastSeen < 60;
+
+    // If service has been offline for more than 3 minutes, remove all waiting drivers
+    // This prevents people from waiting indefinitely when service is down
+    if (device && !isServiceOnline && timeSinceLastSeen > 180) {
+      console.log(`[getQueue] Service offline for ${timeSinceLastSeen.toFixed(0)}s - removing all waiting drivers`);
+      
+      const { data: waitingEntries, error: waitingError } = await supabase
+        .from("irc_device_queue")
+        .select("id, user_id")
+        .eq("device_id", deviceId)
+        .eq("status", "waiting");
+      
+      if (!waitingError && waitingEntries && waitingEntries.length > 0) {
+        for (const entry of waitingEntries) {
+          const { error: deleteError } = await supabase
+            .from("irc_device_queue")
+            .delete()
+            .eq("id", entry.id);
+          
+          if (deleteError) {
+            console.error(`[getQueue] Error removing waiting entry ${entry.id}:`, deleteError);
+          } else {
+            console.log(`[getQueue] Removed waiting entry for user ${entry.user_id} (service offline > 3 minutes)`);
+          }
+        }
+      }
+    }
+
+    // Check for active drivers when pc_service is offline
+    // If a driver is "active" but service went down before they started driving, revert them to waiting
+    if (device && queueWithProfiles) {
+      const activeEntry = queueWithProfiles.find((e) => e.status === "active");
+      
+      if (activeEntry) {
+        // Check if service is online (last_seen within last 60 seconds)
+        const lastSeen = device.last_seen ? new Date(device.last_seen).getTime() : 0;
+        const now = Date.now();
+        const timeSinceLastSeen = (now - lastSeen) / 1000; // seconds
+        const isServiceOnline = timeSinceLastSeen < 60;
+        
+        // If service is offline, check if driver has actually started driving
+        // Note: isServiceOnline is already calculated above
+        if (!isServiceOnline) {
+          // Check if driver is in car (they've started driving)
+          const inCar = device.in_car === true;
+          
+          // Check if timed session has started (movement detected)
+          const sessionState = device.timed_session_state;
+          const sessionStarted = sessionState && 
+            sessionState.active === true && 
+            sessionState.waitingForMovement === false;
+          
+          // If driver hasn't started driving (not in car and session hasn't started), revert to waiting
+          if (!inCar && !sessionStarted) {
+            console.log(`[getQueue] Service offline and driver ${activeEntry.user_id} hasn't started driving - reverting to waiting`);
+            
+            const { error: revertError } = await supabase
+              .from("irc_device_queue")
+              .update({
+                status: "waiting",
+                started_at: null, // Clear started_at since they didn't actually start
+              })
+              .eq("id", activeEntry.id);
+            
+            if (revertError) {
+              console.error(`[getQueue] Error reverting active driver to waiting:`, revertError);
+            } else {
+              // Update the entry in our response
+              activeEntry.status = "waiting";
+              activeEntry.started_at = undefined;
+              
+              // Clear timed session state if it exists
+              if (sessionState) {
+                await supabase
+                  .from("irc_devices")
+                  .update({
+                    timed_session_state: null,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("device_id", deviceId);
+              }
+              
+              console.log(`[getQueue] Reverted driver ${activeEntry.user_id} from active to waiting due to service offline`);
+            }
+          } else {
+            // Driver has started (in car or session started), keep them active
+            console.log(`[getQueue] Service offline but driver ${activeEntry.user_id} has started driving - keeping active`);
+          }
+        }
+      }
+    }
+
+    // Re-fetch queue after potential status change
+    const { data: updatedQueueEntries } = await supabase
+      .from("irc_device_queue")
+      .select(`
+        id,
+        user_id,
+        position,
+        status,
+        joined_at,
+        started_at,
+        completed_at,
+        became_position_one_at
+      `)
+      .eq("device_id", deviceId)
+      .in("status", ["waiting", "active"])
+      .order("position", { ascending: true });
+
+    // Re-fetch profiles if needed
+    let finalQueueWithProfiles = updatedQueueEntries || [];
+    if (updatedQueueEntries && updatedQueueEntries.length > 0) {
+      const userIds = updatedQueueEntries.map((e) => e.user_id);
+      const { data: profiles } = await supabase
+        .from("irc_user_profiles")
+        .select("id, email, display_name")
+        .in("id", userIds);
+
+      finalQueueWithProfiles = updatedQueueEntries.map((entry) => ({
+        ...entry,
+        irc_user_profiles: profiles?.find((p) => p.id === entry.user_id) || null,
+      }));
+    }
+
     return NextResponse.json({
-      device: device || null,
-      queue: queueWithProfiles || [],
-      totalWaiting: queueWithProfiles?.filter((e) => e.status === "waiting").length || 0,
-      active: queueWithProfiles?.find((e) => e.status === "active") || null,
+      device: device ? {
+        device_id: device.device_id,
+        device_name: device.device_name,
+        claimed: device.claimed,
+      } : null,
+      queue: finalQueueWithProfiles || [],
+      totalWaiting: finalQueueWithProfiles?.filter((e) => e.status === "waiting").length || 0,
+      active: finalQueueWithProfiles?.find((e) => e.status === "active") || null,
     });
   } catch (err) {
     console.error("[getQueue] Exception:", err);
@@ -206,10 +339,10 @@ export async function POST(
 
     const supabase = createSupabaseServiceClient();
 
-    // Check if device exists
+    // Check if device exists and get service status
     const { data: device, error: deviceError } = await supabase
       .from("irc_devices")
-      .select("device_id, device_name, claimed")
+      .select("device_id, device_name, claimed, last_seen")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -217,6 +350,30 @@ export async function POST(
       return NextResponse.json(
         { error: "Device not found" },
         { status: 404 }
+      );
+    }
+
+    // Check if device is claimed
+    if (!device.claimed) {
+      return NextResponse.json(
+        { error: "Device must be claimed before joining the queue" },
+        { status: 403 }
+      );
+    }
+
+    // Check if PC service is online
+    const lastSeen = device.last_seen ? new Date(device.last_seen).getTime() : 0;
+    const now = Date.now();
+    const timeSinceLastSeen = (now - lastSeen) / 1000; // seconds
+    const isServiceOnline = timeSinceLastSeen < 60;
+
+    if (!isServiceOnline) {
+      return NextResponse.json(
+        { 
+          error: "Cannot join queue - PC service is offline",
+          reason: "PC service offline (not seen recently). Please wait for the service to come back online before joining the queue."
+        },
+        { status: 503 }
       );
     }
 
@@ -245,6 +402,35 @@ export async function POST(
           status: existingEntry.status,
         },
         { status: 400 }
+      );
+    }
+
+    // Check user's credit balance (1-minute session costs 100 credits)
+    const SESSION_COST_CREDITS = 100;
+    const { data: userProfile, error: profileError } = await supabase
+      .from("irc_user_profiles")
+      .select("credits")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileError && profileError.code !== "PGRST116") {
+      console.error("[joinQueue] Error checking user credits:", profileError);
+      return NextResponse.json(
+        { error: "Failed to check credit balance", details: profileError.message },
+        { status: 500 }
+      );
+    }
+
+    const userCredits = userProfile?.credits ?? 0;
+    if (userCredits < SESSION_COST_CREDITS) {
+      return NextResponse.json(
+        {
+          error: "Insufficient credits",
+          details: `You need ${SESSION_COST_CREDITS} credits to join the queue (1-minute session). You have ${userCredits} credits.`,
+          creditsRequired: SESSION_COST_CREDITS,
+          creditsAvailable: userCredits,
+        },
+        { status: 402 } // 402 Payment Required
       );
     }
 
