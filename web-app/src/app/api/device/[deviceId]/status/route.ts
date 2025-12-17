@@ -76,7 +76,12 @@ export async function GET(
     }
     // If service is offline, iracingConnected stays false
     
-    console.log(`[getDeviceStatus] Final iracingConnected: ${iracingConnected}, canExecuteCommands: ${iracingConnected}`);
+    console.log(`[getDeviceStatus] Final isServiceOnline: ${isServiceOnline}, iracingConnected: ${iracingConnected}`);
+    
+    // canExecuteCommands = service is online and can receive commands
+    // This allows joining queue even if iRacing isn't connected yet
+    // iracingConnected is a separate flag for when we need iRacing specifically (like activating a driver)
+    const canExecuteCommands = isServiceOnline;
     
     // Get car state and telemetry from database (updated by PC service heartbeat)
     // Return the actual value if data is fresh (even if service appears offline)
@@ -109,8 +114,9 @@ export async function GET(
     });
     
     return NextResponse.json({
+      isServiceOnline: isServiceOnline,
       iracingConnected: iracingConnected,
-      canExecuteCommands: iracingConnected,
+      canExecuteCommands: canExecuteCommands,
       reason: !isServiceOnline 
         ? "PC service offline (not seen recently)" 
         : !iracingConnected

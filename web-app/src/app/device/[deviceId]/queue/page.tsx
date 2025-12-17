@@ -48,6 +48,7 @@ export default function QueuePage() {
   const [userStatus, setUserStatus] = useState<string | null>(null);
   const [activating, setActivating] = useState(false);
   const [iracingStatus, setIracingStatus] = useState<{
+    isServiceOnline: boolean;
     iracingConnected: boolean;
     canExecuteCommands: boolean;
     reason: string | null;
@@ -204,6 +205,7 @@ export default function QueuePage() {
         });
         
         setIracingStatus({
+          isServiceOnline: data.isServiceOnline || false,
           iracingConnected: data.iracingConnected || false,
           canExecuteCommands: data.canExecuteCommands || false,
           reason: data.reason || null,
@@ -639,8 +641,8 @@ export default function QueuePage() {
         <p className="text-slate-400 text-sm sm:text-base">Drive Queue</p>
       </div>
 
-      {/* Service Status Warning */}
-      {!iracingStatus?.canExecuteCommands && iracingStatus?.reason?.includes("offline") && (
+      {/* Service Status Warning - Only show if PC service is offline */}
+      {iracingStatus && !iracingStatus.isServiceOnline && (
         <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 sm:p-4">
           <p className="text-red-400 font-semibold text-sm sm:text-base">
             ⚠️ PC Service Offline
@@ -746,7 +748,7 @@ export default function QueuePage() {
               )}
               {userStatus === "active" && (
                 <div className="mt-1 space-y-1">
-                  {!iracingStatus?.canExecuteCommands && iracingStatus?.reason?.includes("offline") && (
+                  {!iracingStatus?.isServiceOnline && (
                     <p className="text-sm text-red-400 font-semibold">
                       ⚠️ PC service is offline. You'll be moved back to waiting if you haven't started driving yet.
                     </p>
@@ -830,14 +832,17 @@ export default function QueuePage() {
                   onClick={handleActivateDriver}
                   disabled={
                     activating || 
-                    !iracingStatus?.canExecuteCommands || 
+                    !iracingStatus?.isServiceOnline ||
+                    !iracingStatus?.iracingConnected || 
                     timedSessionActive || 
                     iracingStatus?.carState?.inCar === true
                   }
                   className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
                   title={
-                    !iracingStatus?.canExecuteCommands
-                      ? iracingStatus?.reason || "iRacing not connected - cannot drive"
+                    !iracingStatus?.isServiceOnline
+                      ? "PC service is offline - cannot drive"
+                      : !iracingStatus?.iracingConnected
+                      ? "iRacing not connected - make sure iRacing is in a session"
                       : timedSessionActive
                       ? "Previous driver's session is still active - please wait"
                       : iracingStatus?.carState?.inCar === true
@@ -860,9 +865,14 @@ export default function QueuePage() {
             </div>
               {userStatus === "waiting" && userPosition === 1 && !activeEntry && (
                 <div className="mt-2 space-y-1">
-                  {!iracingStatus?.canExecuteCommands && (
+                  {!iracingStatus?.isServiceOnline && (
+                    <p className="text-xs text-red-400">
+                      ⚠️ PC service is offline - cannot drive
+                    </p>
+                  )}
+                  {iracingStatus?.isServiceOnline && !iracingStatus?.iracingConnected && (
                     <p className="text-xs text-yellow-400">
-                      ⚠️ {iracingStatus?.reason || "iRacing must be connected to drive"}
+                      ⚠️ iRacing not connected - make sure iRacing is in a session
                     </p>
                   )}
                   {timedSessionActive && timedSessionRemaining !== null && (
@@ -907,15 +917,20 @@ export default function QueuePage() {
         <div className="text-center space-y-2">
           <button
             onClick={handleJoinQueue}
-            disabled={joining || !iracingStatus?.canExecuteCommands}
+            disabled={joining || !iracingStatus?.isServiceOnline}
             className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
-            title={!iracingStatus?.canExecuteCommands ? iracingStatus?.reason || "Service unavailable" : "Join the queue to drive"}
+            title={!iracingStatus?.isServiceOnline ? "PC service offline - cannot join queue" : "Join the queue to drive"}
           >
             {joining ? "Joining..." : "Join Queue"}
           </button>
-          {!iracingStatus?.canExecuteCommands && (
+          {!iracingStatus?.isServiceOnline && (
+            <p className="text-xs sm:text-sm text-red-400">
+              ⚠️ PC service offline - cannot join queue
+            </p>
+          )}
+          {iracingStatus?.isServiceOnline && !iracingStatus?.iracingConnected && (
             <p className="text-xs sm:text-sm text-yellow-400">
-              ⚠️ {iracingStatus?.reason || "Service unavailable - cannot join queue"}
+              ℹ️ iRacing not connected yet - you can still join the queue
             </p>
           )}
         </div>
