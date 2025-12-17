@@ -8,6 +8,7 @@ type User = {
   id: string;
   email: string;
   role?: string;
+  credits?: number;
   created_at: string;
   last_sign_in_at?: string;
   email_confirmed_at?: string;
@@ -23,6 +24,9 @@ export default function AdminUsersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [creditInputs, setCreditInputs] = useState<Record<string, string>>({});
+  const [givingCredits, setGivingCredits] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const limit = 50;
 
   useEffect(() => {
@@ -123,6 +127,62 @@ export default function AdminUsersPage() {
     }
   };
 
+  const giveCredits = async (userId: string) => {
+    if (!session) return;
+
+    const amount = parseInt(creditInputs[userId] || "0", 10);
+    if (!amount || amount <= 0) {
+      setError("Please enter a valid credit amount");
+      return;
+    }
+
+    try {
+      setGivingCredits(userId);
+      setError(null);
+      setSuccessMessage(null);
+
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession?.access_token) {
+        throw new Error("No session token");
+      }
+
+      const response = await fetch("/api/admin/credits", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${currentSession.access_token}`
+        },
+        body: JSON.stringify({ userId, amount })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to give credits");
+      }
+
+      // Update UI with new credits
+      setUsers(prevUsers =>
+        prevUsers.map(user =>
+          user.id === userId
+            ? { ...user, credits: data.newCredits }
+            : user
+        )
+      );
+
+      // Clear input and show success
+      setCreditInputs(prev => ({ ...prev, [userId]: "" }));
+      setSuccessMessage(data.message);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to give credits");
+    } finally {
+      setGivingCredits(null);
+    }
+  };
+
   const getRoleBadgeClass = (role?: string) => {
     switch (role) {
       case "super_admin":
@@ -171,6 +231,15 @@ export default function AdminUsersPage() {
         </div>
       )}
 
+      {successMessage && (
+        <div className="glass rounded-xl border-emerald-500/50 bg-emerald-500/10 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="text-emerald-400">✓</span>
+            <p className="text-sm font-medium text-emerald-200">{successMessage}</p>
+          </div>
+        </div>
+      )}
+
       <div className="glass rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -180,6 +249,8 @@ export default function AdminUsersPage() {
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">User ID</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Role</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Change Role</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Credits</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Give Credits</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Created</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Last Sign In</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Status</th>
@@ -218,6 +289,34 @@ export default function AdminUsersPage() {
                         <span>Updating...</span>
                       </div>
                     )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-emerald-400">
+                      {(user.credits ?? 0).toLocaleString()}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      ${((user.credits ?? 0) / 100).toFixed(2)}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        placeholder="Amount"
+                        value={creditInputs[user.id] || ""}
+                        onChange={(e) => setCreditInputs(prev => ({ ...prev, [user.id]: e.target.value }))}
+                        className="input text-sm py-2 px-3 w-24"
+                        min="1"
+                        max="1000000"
+                      />
+                      <button
+                        onClick={() => giveCredits(user.id)}
+                        disabled={givingCredits === user.id || !creditInputs[user.id]}
+                        className="btn-primary px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {givingCredits === user.id ? "..." : "Give"}
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-slate-300">
