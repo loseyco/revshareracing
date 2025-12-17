@@ -595,6 +595,32 @@ export async function DELETE(
       }
     }
 
+    // If an active driver left, reset the became_position_one_at for the next person
+    // This gives them a fresh 60-second window
+    if (existingEntry.status === "active") {
+      const { data: nextInLine, error: nextError } = await supabase
+        .from("irc_device_queue")
+        .select("id")
+        .eq("device_id", deviceId)
+        .eq("status", "waiting")
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!nextError && nextInLine) {
+        const { error: resetError } = await supabase
+          .from("irc_device_queue")
+          .update({ became_position_one_at: new Date().toISOString() })
+          .eq("id", nextInLine.id);
+
+        if (resetError) {
+          console.error("[leaveQueue] Error resetting position 1 timer:", resetError);
+        } else {
+          console.log(`[leaveQueue] Reset became_position_one_at for next driver (queue entry ${nextInLine.id})`);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: shouldRefund 

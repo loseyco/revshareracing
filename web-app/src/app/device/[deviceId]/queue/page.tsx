@@ -291,9 +291,11 @@ export default function QueuePage() {
       }
 
       // Calculate position 1 timer (60 seconds from became_position_one_at)
-      // Only if the column exists and has a value
+      // Only if there's NO active driver - timer doesn't start until previous driver finishes
       const positionOneEntry = data.queue.find((entry) => entry.position === 1 && entry.status === "waiting");
-      if (positionOneEntry && positionOneEntry.became_position_one_at) {
+      const hasActiveDriver = data.queue.some((entry) => entry.status === "active");
+      
+      if (positionOneEntry && positionOneEntry.became_position_one_at && !hasActiveDriver) {
         try {
           const becameAt = new Date(positionOneEntry.became_position_one_at).getTime();
           const now = Date.now();

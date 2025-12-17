@@ -57,6 +57,30 @@ export async function POST(
       );
     }
 
+    // Reset the became_position_one_at for the next person in position 1
+    // This gives them a fresh 60-second window now that the active driver is done
+    const { data: nextInLine, error: nextError } = await supabase
+      .from("irc_device_queue")
+      .select("id")
+      .eq("device_id", deviceId)
+      .eq("status", "waiting")
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (!nextError && nextInLine) {
+      const { error: resetError } = await supabase
+        .from("irc_device_queue")
+        .update({ became_position_one_at: new Date().toISOString() })
+        .eq("id", nextInLine.id);
+
+      if (resetError) {
+        console.error("[completeDriver] Error resetting position 1 timer:", resetError);
+      } else {
+        console.log(`[completeDriver] Reset became_position_one_at for next driver (queue entry ${nextInLine.id})`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       queueEntry: updatedEntry,
