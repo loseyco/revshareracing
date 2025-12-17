@@ -18,20 +18,30 @@ export async function GET(
     const supabase = createSupabaseServiceClient();
 
     // Get device info including version
+    // Use * to avoid errors if pc_service_version column doesn't exist yet
     const { data: device, error: deviceError } = await supabase
       .from("irc_devices")
-      .select("device_id, pc_service_version, last_seen")
+      .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
-    if (deviceError || !device) {
+    if (deviceError) {
+      console.error(`[getVersion] Database error for deviceId=${deviceId}:`, deviceError);
+      return NextResponse.json(
+        { error: "Database error", details: deviceError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!device) {
       return NextResponse.json(
         { error: "Device not found" },
         { status: 404 }
       );
     }
 
-    const currentVersion = device.pc_service_version || null;
+    // Access pc_service_version if it exists
+    const currentVersion = (device as any).pc_service_version || null;
 
     // Check if service is online
     const lastSeen = device.last_seen ? new Date(device.last_seen).getTime() : 0;

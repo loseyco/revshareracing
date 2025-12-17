@@ -434,6 +434,23 @@ export async function POST(
       );
     }
 
+    // Deduct credits immediately when joining queue
+    const newCredits = userCredits - SESSION_COST_CREDITS;
+    const { error: deductError } = await supabase
+      .from("irc_user_profiles")
+      .update({ credits: newCredits })
+      .eq("id", userId);
+
+    if (deductError) {
+      console.error("[joinQueue] Error deducting credits:", deductError);
+      return NextResponse.json(
+        { error: "Failed to deduct credits", details: deductError.message },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[joinQueue] Deducted ${SESSION_COST_CREDITS} credits from user ${userId}. Previous: ${userCredits}, New: ${newCredits}`);
+
     // Insert new queue entry (position will be assigned by trigger)
     const { data: queueEntry, error: insertError } = await supabase
       .from("irc_device_queue")
@@ -463,7 +480,9 @@ export async function POST(
     return NextResponse.json({
       success: true,
       queueEntry: entryWithPosition || queueEntry,
-      message: `You've joined the queue! Position: ${entryWithPosition?.position || "pending"}`,
+      message: `You've joined the queue! Position: ${entryWithPosition?.position || "pending"}. ${SESSION_COST_CREDITS} credits deducted.`,
+      creditsDeducted: SESSION_COST_CREDITS,
+      creditsRemaining: newCredits,
     });
   } catch (err) {
     console.error("[joinQueue] Exception:", err);
@@ -507,16 +526,40 @@ export async function DELETE(
     }
 
     const supabase = createSupabaseServiceClient();
+    const SESSION_COST_CREDITS = 100;
 
-    // Find and delete user's queue entry
-    const { data: deletedEntry, error: deleteError } = await supabase
+    // First, find the user's queue entry to check status
+    const { data: existingEntry, error: findError } = await supabase
       .from("irc_device_queue")
-      .delete()
+      .select("id, status, started_at")
       .eq("device_id", deviceId)
       .eq("user_id", userId)
       .in("status", ["waiting", "active"])
-      .select()
       .maybeSingle();
+
+    if (findError) {
+      console.error("[leaveQueue] Error finding queue entry:", findError);
+      return NextResponse.json(
+        { error: "Failed to check queue status", details: findError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!existingEntry) {
+      return NextResponse.json(
+        { error: "You are not in the queue" },
+        { status: 404 }
+      );
+    }
+
+    // Check if user should get a refund (waiting status = never started driving)
+    const shouldRefund = existingEntry.status === "waiting";
+
+    // Delete the queue entry
+    const { error: deleteError } = await supabase
+      .from("irc_device_queue")
+      .delete()
+      .eq("id", existingEntry.id);
 
     if (deleteError) {
       console.error("[leaveQueue] Error deleting queue entry:", deleteError);
@@ -526,16 +569,38 @@ export async function DELETE(
       );
     }
 
-    if (!deletedEntry) {
-      return NextResponse.json(
-        { error: "You are not in the queue" },
-        { status: 404 }
-      );
+    // Refund credits if user was still waiting (never drove)
+    let creditsRefunded = 0;
+    if (shouldRefund) {
+      const { data: userProfile } = await supabase
+        .from("irc_user_profiles")
+        .select("credits")
+        .eq("id", userId)
+        .maybeSingle();
+
+      const currentCredits = userProfile?.credits ?? 0;
+      const newCredits = currentCredits + SESSION_COST_CREDITS;
+
+      const { error: refundError } = await supabase
+        .from("irc_user_profiles")
+        .update({ credits: newCredits })
+        .eq("id", userId);
+
+      if (refundError) {
+        console.error("[leaveQueue] Error refunding credits:", refundError);
+        // Don't fail the leave operation, just log the error
+      } else {
+        creditsRefunded = SESSION_COST_CREDITS;
+        console.log(`[leaveQueue] Refunded ${SESSION_COST_CREDITS} credits to user ${userId}. New balance: ${newCredits}`);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      message: "You've left the queue",
+      message: shouldRefund 
+        ? `You've left the queue. ${creditsRefunded} credits refunded.`
+        : "You've left the queue.",
+      creditsRefunded,
     });
   } catch (err) {
     console.error("[leaveQueue] Exception:", err);

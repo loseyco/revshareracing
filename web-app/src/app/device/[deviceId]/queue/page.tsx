@@ -68,6 +68,7 @@ export default function QueuePage() {
     speedKph: number | null;
   } | null>(null);
   const [positionOneTimer, setPositionOneTimer] = useState<number | null>(null);
+  const [intentionallyLeft, setIntentionallyLeft] = useState(false);
   const [versionInfo, setVersionInfo] = useState<{
     currentVersion: string | null;
     latestVersion: string | null;
@@ -76,6 +77,7 @@ export default function QueuePage() {
     isServiceOnline: boolean;
     downloadUrl?: string | null;
   } | null>(null);
+  const [userCredits, setUserCredits] = useState<number | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const iracingPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const positionOneTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -270,21 +272,21 @@ export default function QueuePage() {
             setMessage("⚠️ PC service went offline before you started driving. You've been moved back to waiting. Please try again when the service is back online.");
             setError(null);
           }
-          // Detect if user was removed from queue (service offline > 3 minutes)
-          if (userStatus === "waiting" && !userEntry) {
-            setMessage("⚠️ PC service has been offline for more than 3 minutes. You've been removed from the queue. Please join again when the service is back online.");
-            setError(null);
-          }
           setUserPosition(userEntry.position);
           setUserStatus(userEntry.status);
         } else {
-          // User was in queue but now not found - might have been removed due to service offline
-          if (userStatus === "waiting") {
-            setMessage("⚠️ PC service has been offline for more than 3 minutes. You've been removed from the queue. Please join again when the service is back online.");
+          // User is no longer in queue - only show offline message if they didn't leave voluntarily
+          if (userStatus !== null && !intentionallyLeft) {
+            // User was removed unexpectedly (e.g., by service offline > 3 minutes)
+            setMessage("⚠️ You've been removed from the queue. This may happen if the PC service was offline for too long.");
             setError(null);
           }
           setUserPosition(null);
           setUserStatus(null);
+          // Reset the flag after processing
+          if (intentionallyLeft) {
+            setIntentionallyLeft(false);
+          }
         }
       }
 
@@ -310,6 +312,32 @@ export default function QueuePage() {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch user credits
+  const fetchUserCredits = async () => {
+    if (!session) {
+      setUserCredits(null);
+      return;
+    }
+
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return;
+
+      const response = await fetch("/api/profile", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserCredits(data.credits ?? 0);
+      }
+    } catch (err) {
+      console.error("[fetchUserCredits] Error:", err);
     }
   };
 
@@ -361,6 +389,7 @@ export default function QueuePage() {
       setMessage(data.message || "Successfully joined the queue!");
       setError(null);
       await fetchQueue(); // Refresh queue
+      await fetchUserCredits(); // Refresh credits after deduction
     } catch (err) {
       console.error("[handleJoinQueue] Error:", err);
       setError(err instanceof Error ? err.message : "Failed to join queue");
@@ -486,6 +515,7 @@ export default function QueuePage() {
         throw new Error(data.error || "Failed to leave queue");
       }
 
+      setIntentionallyLeft(true); // Flag to prevent false "removed from queue" message
       setMessage(userStatus === "active" 
         ? "Session ended. You've left the queue." 
         : data.message || "Successfully left the queue");
@@ -494,6 +524,7 @@ export default function QueuePage() {
       setTimedSessionActive(false);
       setTimedSessionRemaining(null);
       await fetchQueue(); // Refresh queue
+      await fetchUserCredits(); // Refresh credits (may have been refunded)
     } catch (err) {
       console.error("[handleLeaveQueue] Error:", err);
       setError(err instanceof Error ? err.message : "Failed to leave queue");
@@ -508,6 +539,7 @@ export default function QueuePage() {
     fetchIracingStatus();
     fetchTimedSession();
     fetchVersionInfo();
+    fetchUserCredits();
 
     // Poll every 2 seconds for iRacing status (to detect movement faster)
     iracingPollIntervalRef.current = setInterval(() => {
@@ -917,12 +949,30 @@ export default function QueuePage() {
         <div className="text-center space-y-2">
           <button
             onClick={handleJoinQueue}
-            disabled={joining || !iracingStatus?.isServiceOnline}
+            disabled={joining || !iracingStatus?.isServiceOnline || (userCredits !== null && userCredits < 100)}
             className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto"
-            title={!iracingStatus?.isServiceOnline ? "PC service offline - cannot join queue" : "Join the queue to drive"}
+            title={!iracingStatus?.isServiceOnline ? "PC service offline - cannot join queue" : userCredits !== null && userCredits < 100 ? "Insufficient credits" : "Join the queue to drive (100 credits)"}
           >
-            {joining ? "Joining..." : "Join Queue"}
+            {joining ? "Joining..." : "Join Queue (100 credits)"}
           </button>
+          <div className="text-xs text-slate-400 space-y-1">
+            <p>💳 1-minute session • Cost: <span className="text-white font-medium">100 credits</span></p>
+            {userCredits !== null && (
+              <p>
+                Your balance: <span className={`font-medium ${userCredits >= 100 ? 'text-green-400' : 'text-red-400'}`}>
+                  {userCredits} credits
+                </span>
+                {userCredits >= 100 && (
+                  <span className="text-slate-500"> → {userCredits - 100} credits after joining</span>
+                )}
+              </p>
+            )}
+          </div>
+          {userCredits !== null && userCredits < 100 && (
+            <p className="text-xs sm:text-sm text-red-400">
+              ⚠️ Insufficient credits - you need 100 credits to join
+            </p>
+          )}
           {!iracingStatus?.isServiceOnline && (
             <p className="text-xs sm:text-sm text-red-400">
               ⚠️ PC service offline - cannot join queue

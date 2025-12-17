@@ -20,13 +20,22 @@ export async function GET(
 
     // Get device info including iRacing connection status, car state, and telemetry
     // Use .maybeSingle() to avoid caching issues and ensure fresh data
+    // Select all columns with * to avoid errors if some columns don't exist yet
     const { data: device, error: deviceError } = await supabase
       .from("irc_devices")
-      .select("device_id, status, last_seen, claimed, iracing_connected, in_car, speed_kph, rpm, track_name, car_name, current_lap, in_pit_stall, engine_running, pc_service_version")
+      .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
-    if (deviceError || !device) {
+    if (deviceError) {
+      console.error(`[getDeviceStatus] Database error for deviceId=${deviceId}:`, deviceError);
+      return NextResponse.json(
+        { error: "Database error", details: deviceError.message },
+        { status: 500 }
+      );
+    }
+    
+    if (!device) {
       return NextResponse.json(
         { error: "Device not found" },
         { status: 404 }
