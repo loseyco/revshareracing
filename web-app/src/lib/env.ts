@@ -3,13 +3,18 @@ import { z } from "zod";
 const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  NEXT_PUBLIC_SITE_URL: z.string().url().optional()
+  NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
+  // GridPass platform configuration
+  NEXT_PUBLIC_GRIDPASS_API_URL: z.string().url().optional(),
+  NEXT_PUBLIC_USE_GRIDPASS: z.string().optional() // "true" to use GridPass APIs
 });
 
 const serverSchema = clientSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z
     .string()
-    .min(1, "SUPABASE_SERVICE_ROLE_KEY is required on the server")
+    .min(1, "SUPABASE_SERVICE_ROLE_KEY is required on the server"),
+  // GridPass tenant key for B2B API access
+  GRIDPASS_TENANT_KEY: z.string().optional()
 });
 
 const rawClientEnv = {
@@ -17,7 +22,10 @@ const rawClientEnv = {
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "",
   NEXT_PUBLIC_SUPABASE_ANON_KEY:
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? "",
-  NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL
+  NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+  // GridPass platform configuration
+  NEXT_PUBLIC_GRIDPASS_API_URL: process.env.NEXT_PUBLIC_GRIDPASS_API_URL ?? "https://gridpass.app",
+  NEXT_PUBLIC_USE_GRIDPASS: process.env.NEXT_PUBLIC_USE_GRIDPASS ?? "false"
 };
 
 const parsedClient = clientSchema.safeParse(rawClientEnv);
@@ -42,7 +50,8 @@ export const clientEnv = parsedClient.data;
 // Only validate server env on server-side (during SSR or API routes)
 const rawServerEnv = {
   ...clientEnv,
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  GRIDPASS_TENANT_KEY: process.env.GRIDPASS_TENANT_KEY ?? ""
 };
 
 // Only validate if we're on the server (not in browser)

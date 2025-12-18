@@ -1,123 +1,196 @@
-# Rev Share Racing
+# GridPass Platform + RevShareRacing
 
-**Professional, Clean, Organized Version**
+**Multi-tenant sim racing management platform**
 
 ---
 
-## 📋 **Project Overview**
+## 📋 **Overview**
 
-Rev Share Racing is a complete rebuild with clean architecture, professional organization, and comprehensive documentation.
+This repository contains two related but legally separate entities:
 
-**Key Principles:**
-- ✅ Clean separation of concerns
-- ✅ Professional documentation structure
-- ✅ Organized codebase
-- ✅ Clear guides and references
-- ✅ Best practices throughout
+1. **GridPass** - The platform that manages racing rigs, queues, and telemetry
+2. **RevShareRacing** - A tenant application that uses GridPass for sim racing experiences
+
+This separation allows GridPass to operate as an independent B2B platform while RevShareRacing focuses on the consumer racing experience.
 
 ---
 
 ## 🏗️ **Architecture**
 
-### **Two-Component System:**
-
-1. **Python PC Service** (`pc-service/`)
-   - Lightweight service for rig operations
-   - Lap collection, rig registration, keystrokes, configs
-   - Direct Supabase communication
-
-2. **Vercel Web Application** (`web-app/`)
-   - All webpages hosted on Vercel
-   - User authentication, dashboards, queue management
-   - Direct Supabase communication
-
-### **Shared Database:**
-- Supabase PostgreSQL
-- Single source of truth
-- Real-time sync
+```
+                    ┌──────────────────────────────────┐
+                    │       End Users / Drivers        │
+                    └────────────────┬─────────────────┘
+                                     │
+                    ┌────────────────▼─────────────────┐
+                    │      RevShareRacing.com          │
+                    │      (Tenant Application)        │
+                    │      web-app/                    │
+                    └────────────────┬─────────────────┘
+                                     │ API calls
+                    ┌────────────────▼─────────────────┐
+                    │        GridPass.app              │
+                    │    (Platform - gridpass-app/)    │
+                    │  • Public REST APIs              │
+                    │  • Authentication                │
+                    │  • Tenant Management             │
+                    └────────────────┬─────────────────┘
+                                     │
+                    ┌────────────────▼─────────────────┐
+                    │         Supabase                 │
+                    │       (Database Layer)           │
+                    └────────────────▲─────────────────┘
+                                     │ Direct access
+                    ┌────────────────┴─────────────────┐
+                    │       PC Service                 │
+                    │      (pc-service/)               │
+                    │  • Runs on each rig              │
+                    │  • iRacing SDK integration       │
+                    │  • Telemetry & lap collection    │
+                    └──────────────────────────────────┘
+```
 
 ---
 
-## 📁 **Directory Structure**
+## 📁 **Repository Structure**
 
 ```
-_V4/
-├── README.md                    # This file
-├── docs/                        # Documentation hub
-│   ├── architecture/            # System architecture docs
-│   ├── guides/                  # How-to guides
-│   ├── reference/               # API & schema reference
-│   ├── notes/                   # Development notes
-│   └── decisions/               # Architecture decisions
-├── pc-service/                  # Python PC service
-│   ├── README.md
-│   ├── src/
-│   ├── tests/
-│   └── docs/
-├── web-app/                     # Vercel web application
-│   ├── README.md
-│   ├── src/
-│   ├── public/
-│   └── docs/
-└── reference/                   # Reference materials from old versions
-    ├── ircommander/             # Reference to old code
-    └── notes/                   # Migration notes
+RevShareRacing/
+├── gridpass-app/           # GridPass Platform (NEW)
+│   ├── src/app/api/v1/     # Public REST APIs
+│   ├── src/lib/            # Platform utilities
+│   └── README.md           # Platform documentation
+│
+├── web-app/                # RevShareRacing.com (Tenant)
+│   ├── src/app/            # Next.js pages and API routes
+│   ├── src/components/     # React components
+│   ├── src/lib/            # Client libraries (incl. GridPass client)
+│   └── README.md           # Tenant app documentation
+│
+├── pc-service/             # PC Service (Part of GridPass)
+│   ├── src/                # Python service code
+│   ├── data/               # Local device config
+│   └── README.md           # Service documentation
+│
+├── migrations/             # Database migrations
+│   └── create_gridpass_tenants.sql  # Multi-tenant setup
+│
+└── docs/                   # Documentation
+    ├── architecture/       # System architecture
+    ├── guides/             # How-to guides
+    └── decisions/          # Architecture decisions
 ```
 
 ---
 
 ## 🚀 **Quick Start**
 
-### **1. PC Service**
+### **GridPass Platform (gridpass-app/)**
 ```bash
-cd pc-service
-python start.py
+cd gridpass-app
+npm install
+npm run dev  # Runs on port 3001
 ```
 
-### **2. Web Application**
+### **RevShareRacing (web-app/)**
 ```bash
 cd web-app
 npm install
-npm run dev
+npm run dev  # Runs on port 3000
 ```
+
+### **PC Service (pc-service/)**
+```bash
+cd pc-service
+pip install -r requirements.txt
+python start.py
+```
+
+---
+
+## 🔐 **Configuration**
+
+### **GridPass Platform**
+Create `gridpass-app/.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+### **RevShareRacing**
+Create `web-app/.env.local`:
+```env
+# Direct Supabase access (current mode)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# To use GridPass APIs instead:
+NEXT_PUBLIC_USE_GRIDPASS=true
+NEXT_PUBLIC_GRIDPASS_API_URL=https://gridpass.app
+GRIDPASS_TENANT_KEY=your-tenant-api-key
+```
+
+---
+
+## 📡 **GridPass API Endpoints**
+
+### Authentication
+- `POST /api/v1/auth/login` - User login
+- `POST /api/v1/auth/register` - User registration
+- `POST /api/v1/auth/refresh` - Token refresh
+- `GET /api/v1/auth/me` - Current user profile
+
+### Devices
+- `GET /api/v1/devices` - List devices
+- `GET /api/v1/devices/:id` - Device details
+- `GET /api/v1/devices/:id/status` - Real-time status
+
+### Queue
+- `GET /api/v1/devices/:id/queue` - Current queue
+- `POST /api/v1/devices/:id/queue` - Join queue
+- `DELETE /api/v1/devices/:id/queue` - Leave queue
+- `POST /api/v1/devices/:id/queue/activate` - Start session
+- `POST /api/v1/devices/:id/queue/complete` - End session
+
+### Leaderboards & Credits
+- `GET /api/v1/leaderboards` - Global leaderboards
+- `GET /api/v1/credits/balance` - Credit balance
+- `POST /api/v1/credits/purchase` - Purchase credits
+
+---
+
+## 🎯 **Key Benefits**
+
+1. **Legal Separation** - GridPass and RevShareRacing are independent entities
+2. **Multi-tenant** - GridPass can serve multiple racing companies
+3. **API-First** - Clean contract between platform and tenants
+4. **Scalable** - Each component scales independently
+5. **Maintainable** - Clear separation of concerns
 
 ---
 
 ## 📚 **Documentation**
 
-- **Architecture**: `docs/architecture/`
-- **Guides**: `docs/guides/`
-- **Reference**: `docs/reference/`
-- **Notes**: `docs/notes/`
-- **Decisions**: `docs/decisions/`
+- [Architecture Overview](docs/architecture/ARCHITECTURE.md)
+- [GridPass Platform](gridpass-app/README.md)
+- [RevShareRacing Web App](web-app/README.md)
+- [PC Service](pc-service/README.md)
+- [Database Migrations](migrations/)
 
 ---
 
-## 🎯 **Development Status**
+## 🔄 **Migration Mode**
 
-**Current Phase:** PC Service Complete  
-**Status:** 🟢 PC Service Ready
+RevShareRacing can operate in two modes:
 
-### **Completed:**
-- ✅ PC Service structure and code
-- ✅ Core modules (device, telemetry, laps, controls)
-- ✅ Service with lap collection
-- ✅ GUI support
-- ✅ Configuration system
-- ✅ Documentation
+1. **Direct Mode** (current) - Direct Supabase access
+2. **GridPass Mode** - API calls to GridPass platform
 
-### **Next:**
-- ⏳ Web application (Vercel)
-- ⏳ Minimal API server (optional)
+Set `NEXT_PUBLIC_USE_GRIDPASS=true` to switch to GridPass mode.
 
 ---
 
-## 📝 **Contributing**
-
-This is a clean rebuild. Use old versions (`ircommander/`, `Archive/`) as reference only.
-
----
-
-**Version:** 4.0.0  
-**Last Updated:** January 2025
-
+**Version:** 4.0.0 (GridPass Platform)  
+**Last Updated:** December 2024

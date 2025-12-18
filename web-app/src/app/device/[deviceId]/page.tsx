@@ -11,12 +11,12 @@ export default function DevicePage() {
   const deviceId = params.deviceId as string;
   const claimCode = searchParams.get("claimCode");
 
-  // Redirect to claim page if claimCode exists, otherwise redirect to details
+  // Redirect to claim page if claimCode exists, otherwise redirect to driver page
   useEffect(() => {
     if (claimCode) {
       router.replace(`/device/${deviceId}/claim?claimCode=${claimCode}`);
     } else {
-      router.replace(`/device/${deviceId}/details`);
+      router.replace(`/device/${deviceId}/driver`);
     }
   }, [claimCode, deviceId, router]);
 

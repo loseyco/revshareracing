@@ -1,16 +1,21 @@
-# PC Service - Rev Share Racing
+# GridPass PC Service
 
 **Lightweight Python service for rig operations**
+
+Part of the GridPass platform - provides the local rig management component that runs on racing simulator computers.
 
 ---
 
 ## 🎯 **Purpose**
 
 Handles PC-specific operations that require direct hardware/software access:
-- ✅ Lap collection from iRacing
-- ✅ Rig registration to Supabase
-- ✅ Keystroke/control commands
-- ✅ Config retrieval
+- ✅ Lap collection from iRacing SDK
+- ✅ Rig registration and heartbeat to Supabase
+- ✅ Queue monitoring and session management
+- ✅ Keystroke/control commands to iRacing
+- ✅ Real-time telemetry updates
+
+This service is used by tenant applications like RevShareRacing.com to manage physical racing rigs.
 
 ---
 
@@ -71,10 +76,18 @@ pc-service/
 Create `.env` file in `pc-service/` directory:
 
 ```env
+# Supabase Configuration (GridPass database)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+
+# GridPass Platform Settings (optional)
+GRIDPASS_PORTAL_URL=https://gridpass.app
+REVSHARERACING_PORTAL_URL=https://revshareracing.com
+GRIDPASS_DEFAULT_TENANT_ID=a0000000-0000-0000-0000-000000000001
 ```
+
+For production distribution, the service includes hardcoded defaults for the GridPass Supabase instance.
 
 ---
 
@@ -134,11 +147,40 @@ python start.py
 
 ---
 
+## 🏗️ **Architecture**
+
+The PC Service is part of the GridPass platform architecture:
+
+```
+┌─────────────────────┐
+│  Tenant Apps        │
+│  (RevShareRacing)   │
+└──────────┬──────────┘
+           │ API calls
+           ▼
+┌─────────────────────┐
+│  GridPass Platform  │
+│  (gridpass.app)     │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│     Supabase        │◄──────┐
+│    (Database)       │       │ Direct access
+└─────────────────────┘       │
+                              │
+                    ┌─────────┴─────────┐
+                    │   PC Service      │
+                    │ (This component)  │
+                    │ Runs on each rig  │
+                    └───────────────────┘
+```
+
 ## ✅ **Status**
 
 **Current:** ✅ Core functionality complete  
-**Next:** Add minimal API server, enhance GUI
+**Platform:** GridPass v1.0.0
 
 ---
 
-**Version:** 4.0.0
+**Version:** 4.0.0 (GridPass Platform)

@@ -1086,10 +1086,17 @@ export default function QueuePage() {
       {/* Footer Links */}
       <div className="text-center space-y-2 text-sm text-slate-400">
         <Link
+          href={`/device/${deviceId}/driver`}
+          className="hover:text-slate-300 underline"
+        >
+          Driver View
+        </Link>
+        <span className="mx-2">•</span>
+        <Link
           href={`/device/${deviceId}/details`}
           className="hover:text-slate-300 underline"
         >
-          View Device Details
+          Device Details
         </Link>
         {session && (
           <>
