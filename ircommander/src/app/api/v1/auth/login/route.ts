@@ -34,7 +34,10 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error("[auth/login] Login failed:", error.message);
       console.error("[auth/login] Error code:", error.status);
+      console.error("[auth/login] Error details:", JSON.stringify(error));
       console.error("[auth/login] Email attempted:", email.trim().toLowerCase());
+      console.error("[auth/login] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ? "Set" : "MISSING");
+      console.error("[auth/login] Anon Key:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Set" : "MISSING");
       // Don't expose exact error to client for security, but log it
       return ApiErrors.unauthorized("Invalid email or password");
     }
