@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { createSupabaseAnonClient, createSupabaseServiceClient } from "@/lib/supabase";
-import { apiSuccess, ApiErrors } from "@/lib/api-response";
+import { apiSuccess, ApiErrors, apiError } from "@/lib/api-response";
 import { z } from "zod";
 
 const loginSchema = z.object({

@@ -28,11 +28,21 @@ export default function LoginPage() {
 
       if (!response.ok || !data.success) {
         // Handle different error formats
-        const errorMessage = 
-          data.error?.message || 
-          (typeof data.error === 'string' ? data.error : null) ||
-          data.message ||
-          "Invalid email or password";
+        let errorMessage = "Invalid email or password";
+        
+        if (data.error) {
+          if (typeof data.error === 'string') {
+            errorMessage = data.error;
+          } else if (data.error.message) {
+            errorMessage = data.error.message;
+          }
+        } else if (data.message) {
+          errorMessage = data.message;
+        }
+        
+        // Log for debugging
+        console.error("Login error response:", { status: response.status, data });
+        
         setError(errorMessage);
         setLoading(false);
         return;
