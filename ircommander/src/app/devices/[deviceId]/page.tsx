@@ -317,10 +317,10 @@ export default function DeviceDetailsPage() {
                   {device.telemetry.car_name && (
                     <InfoRow label="Car" value={device.telemetry.car_name} />
                   )}
-                  {device.telemetry.speed_kph !== null && (
+                  {device.telemetry.speed_kph !== null && device.telemetry.speed_kph !== undefined && (
                     <InfoRow label="Speed" value={`${device.telemetry.speed_kph.toFixed(1)} km/h`} />
                   )}
-                  {device.telemetry.rpm !== null && (
+                  {device.telemetry.rpm !== null && device.telemetry.rpm !== undefined && (
                     <InfoRow label="RPM" value={Math.round(device.telemetry.rpm).toLocaleString()} />
                   )}
                   {device.telemetry.current_lap !== null && (
@@ -448,7 +448,7 @@ export default function DeviceDetailsPage() {
                           {device.system_info.ram_available_gb !== null && (
                             <span className="text-neutral-500">, {device.system_info.ram_available_gb} GB available</span>
                           )}
-                          {device.system_info.ram_used_percent !== null && (
+                          {device.system_info.ram_used_percent !== null && device.system_info.ram_used_percent !== undefined && (
                             <span className={`ml-2 ${device.system_info.ram_used_percent > 90 ? 'text-yellow-400' : 'text-neutral-400'}`}>
                               ({device.system_info.ram_used_percent}% used)
                             </span>
@@ -469,7 +469,7 @@ export default function DeviceDetailsPage() {
                           {device.system_info.disk_free_gb !== null && (
                             <span className="text-neutral-500">, {device.system_info.disk_free_gb} GB free</span>
                           )}
-                          {device.system_info.disk_used_percent !== null && (
+                          {device.system_info.disk_used_percent !== null && device.system_info.disk_used_percent !== undefined && (
                             <span className={`ml-2 ${device.system_info.disk_low_space ? 'text-red-400 font-semibold' : device.system_info.disk_used_percent > 80 ? 'text-yellow-400' : 'text-neutral-400'}`}>
                               ({device.system_info.disk_used_percent}% used)
                               {device.system_info.disk_low_space && ' ⚠️ Low Space'}
