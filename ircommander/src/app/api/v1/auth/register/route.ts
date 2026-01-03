@@ -39,12 +39,20 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error("[auth/register] Registration failed:", error.message);
+      console.error("[auth/register] Error code:", error.status);
+      console.error("[auth/register] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ? "Set" : "MISSING");
+      console.error("[auth/register] Anon Key:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Set" : "MISSING");
       
-      if (error.message.includes("already registered")) {
+      if (error.message.includes("already registered") || error.message.includes("already exists")) {
         return ApiErrors.conflict("An account with this email already exists");
       }
       
-      return ApiErrors.badRequest(error.message);
+      // Check for API key errors
+      if (error.message.includes("Invalid API key") || error.message.includes("JWT")) {
+        return ApiErrors.badRequest("Server configuration error. Please contact support.");
+      }
+      
+      return ApiErrors.badRequest(error.message || "Registration failed");
     }
 
     if (!data.user) {
