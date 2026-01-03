@@ -13,6 +13,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setError("");
     setLoading(true);
 
@@ -25,8 +26,14 @@ export default function LoginPage() {
 
       const data = await response.json();
 
-      if (!response.ok) {
-        setError(data.error?.message || data.error || "Invalid email or password");
+      if (!response.ok || !data.success) {
+        // Handle different error formats
+        const errorMessage = 
+          data.error?.message || 
+          (typeof data.error === 'string' ? data.error : null) ||
+          data.message ||
+          "Invalid email or password";
+        setError(errorMessage);
         setLoading(false);
         return;
       }
@@ -36,11 +43,15 @@ export default function LoginPage() {
         localStorage.setItem("access_token", data.data.access_token);
         localStorage.setItem("refresh_token", data.data.refresh_token);
         localStorage.setItem("user", JSON.stringify(data.data.user));
+        
+        // Redirect to dashboard or home
+        router.push("/dashboard");
+      } else {
+        setError("Login successful but no access token received");
+        setLoading(false);
       }
-
-      // Redirect to dashboard or home
-      router.push("/dashboard");
     } catch (err) {
+      console.error("Login error:", err);
       setError("Network error. Please try again.");
       setLoading(false);
     }

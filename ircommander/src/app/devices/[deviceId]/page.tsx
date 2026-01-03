@@ -550,6 +550,12 @@ export default function DeviceDetailsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
               <div className="space-y-2">
                 <a
+                  href={`/devices/${deviceId}/remote-desktop`}
+                  className="block w-full px-4 py-2 text-sm text-center bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition"
+                >
+                  Remote Desktop
+                </a>
+                <a
                   href={`/devices/${deviceId}/queue`}
                   className="block w-full px-4 py-2 text-sm text-center bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition"
                 >
