@@ -16,6 +16,14 @@ export const createSupabaseServiceClient = (): SupabaseClient =>
 /**
  * Create a Supabase client with anon key for user-authenticated operations.
  */
-export const createSupabaseAnonClient = (): SupabaseClient =>
-  createClient(serverEnv.NEXT_PUBLIC_SUPABASE_URL, serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+export const createSupabaseAnonClient = (): SupabaseClient => {
+  const url = serverEnv.NEXT_PUBLIC_SUPABASE_URL;
+  const key = serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!url || !key) {
+    throw new Error("Missing Supabase configuration: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set");
+  }
+  
+  return createClient(url, key);
+};
 

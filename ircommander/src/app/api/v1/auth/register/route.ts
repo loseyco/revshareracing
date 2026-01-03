@@ -24,6 +24,18 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, password, display_name } = parsed.data;
+    
+    // Check environment variables before creating client
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error("[auth/register] Missing Supabase environment variables");
+      console.error("[auth/register] URL:", supabaseUrl ? "Set" : "MISSING");
+      console.error("[auth/register] Anon Key:", supabaseAnonKey ? "Set" : "MISSING");
+      return ApiErrors.serverError("Server configuration error: Missing Supabase credentials");
+    }
+    
     const supabase = createSupabaseAnonClient();
 
     // Create the user
@@ -48,8 +60,12 @@ export async function POST(request: NextRequest) {
       }
       
       // Check for API key errors
-      if (error.message.includes("Invalid API key") || error.message.includes("JWT")) {
-        return ApiErrors.badRequest("Server configuration error. Please contact support.");
+      if (error.message.includes("Invalid API key") || error.message.includes("JWT") || error.message.includes("invalid")) {
+        console.error("[auth/register] API key validation failed");
+        console.error("[auth/register] Supabase URL length:", supabaseUrl?.length || 0);
+        console.error("[auth/register] Anon Key length:", supabaseAnonKey?.length || 0);
+        console.error("[auth/register] Anon Key prefix:", supabaseAnonKey?.substring(0, 20) || "N/A");
+        return ApiErrors.badRequest("Server configuration error: Invalid Supabase API key. Please check Vercel environment variables.");
       }
       
       return ApiErrors.badRequest(error.message || "Registration failed");
@@ -74,11 +90,16 @@ export async function POST(request: NextRequest) {
 
       if (profileError) {
         console.error("[auth/register] Profile creation failed:", profileError);
+        console.error("[auth/register] Profile error code:", profileError.code);
+        console.error("[auth/register] Profile error message:", profileError.message);
         // Don't fail registration if profile creation fails - it can be created later
-        // This might happen if SUPABASE_SERVICE_ROLE_KEY is missing
+        // This might happen if SUPABASE_SERVICE_ROLE_KEY is missing or invalid
+      } else {
+        console.log("[auth/register] User profile created successfully");
       }
-    } catch (profileErr) {
-      console.error("[auth/register] Profile creation error (service role key may be missing):", profileErr);
+    } catch (profileErr: any) {
+      console.error("[auth/register] Profile creation error:", profileErr);
+      console.error("[auth/register] Service role key available:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
       // Continue - user is created, profile can be created later
     }
 
