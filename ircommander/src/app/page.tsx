@@ -1,3 +1,6 @@
+import Link from "next/link";
+import DownloadButton from "./download-button";
+
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-neutral-950">
@@ -60,25 +63,34 @@ export default function HomePage() {
         </div>
 
         {/* CTA Buttons */}
-        <div className="flex items-center justify-center gap-3">
-          <a
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <DownloadButton />
+          <Link
             href="/auth/login"
             className="px-6 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg transition"
           >
             Sign In
-          </a>
-          <a
+          </Link>
+          <Link
             href="/auth/register"
             className="px-6 py-2.5 text-neutral-400 border border-neutral-800 rounded-lg hover:border-neutral-700 hover:text-white transition"
           >
             Sign Up
-          </a>
+          </Link>
         </div>
       </div>
 
       {/* Footer */}
       <footer className="border-t border-neutral-900">
         <div className="mx-auto max-w-5xl px-6 py-6">
+          <div className="flex items-center justify-center gap-6 mb-4">
+            <Link
+              href="/help"
+              className="text-sm text-neutral-400 hover:text-white transition"
+            >
+              Help & Documentation
+            </Link>
+          </div>
           <p className="text-center text-sm text-neutral-600">
             &copy; {new Date().getFullYear()} iRCommander by GridPass.App
           </p>

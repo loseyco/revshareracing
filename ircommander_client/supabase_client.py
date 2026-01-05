@@ -45,6 +45,8 @@ class IRCommanderSupabaseClient:
                 "or set SUPABASE_URL and SUPABASE_ANON_KEY in .env file (for development)"
             )
         
+        print(f"[DB] Connecting to Supabase: {SUPABASE_URL}")
+        
         # Create Supabase client with anon key for user auth
         # Using default options - the client handles session persistence automatically
         self.supabase: Client = create_client(
@@ -59,6 +61,9 @@ class IRCommanderSupabaseClient:
                 SUPABASE_URL,
                 SUPABASE_SERVICE_ROLE_KEY
             )
+            print("[DB] Service role client created")
+        else:
+            print("[DB] Service role key not provided - using anon key (may have limited permissions)")
         
         # Device state
         self.api_key: Optional[str] = None
@@ -68,6 +73,52 @@ class IRCommanderSupabaseClient:
         # Config file
         self.config_path = DATA_DIR / "device_config.json"
         self._load_config()
+    
+    def _recreate_clients(self):
+        """Recreate Supabase clients to recover from connection errors."""
+        try:
+            self.supabase = create_client(
+                SUPABASE_URL,
+                SUPABASE_ANON_KEY
+            )
+            if SUPABASE_SERVICE_ROLE_KEY:
+                self.service_client = create_client(
+                    SUPABASE_URL,
+                    SUPABASE_SERVICE_ROLE_KEY
+                )
+        except Exception as e:
+            print(f"[WARN] Failed to recreate Supabase clients: {e}")
+    
+    def _is_connection_error(self, error: Exception) -> bool:
+        """Check if an error is a connection error that might be recoverable."""
+        error_msg = str(error).lower()
+        return ("server disconnected" in error_msg or 
+                "connection" in error_msg or 
+                "timeout" in error_msg or
+                "broken pipe" in error_msg or
+                "connection reset" in error_msg or
+                "network" in error_msg)
+    
+    def _retry_with_recovery(self, func, max_retries: int = 2, *args, **kwargs):
+        """Execute a function with retry logic and connection recovery."""
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if self._is_connection_error(e) and attempt < max_retries - 1:
+                    # Only log first attempt to avoid spam
+                    if attempt == 0:
+                        print(f"[DB] Connection error to Supabase (attempt {attempt + 1}/{max_retries}): {e}")
+                        print(f"[DB] Retrying with new connection...")
+                    try:
+                        self._recreate_clients()
+                        time.sleep(0.5 * (attempt + 1))  # Exponential backoff: 0.5s, 1s, etc.
+                    except Exception as recreate_error:
+                        print(f"[WARN] Failed to recreate clients: {recreate_error}")
+                    continue  # Retry
+                else:
+                    # Either not a connection error, or we've exhausted retries
+                    raise
     
     def _load_config(self):
         """Load saved device config."""
@@ -378,35 +429,56 @@ class IRCommanderSupabaseClient:
         if not self.api_key:
             return None
         
-        try:
-            # Query directly - more reliable than using the RPC function
-            # First, get the device_id from the API key
-            client = self.service_client or self.supabase
-            key_result = client.table("irc_device_api_keys").select("device_id").eq("api_key", self.api_key).eq("is_active", True).is_("revoked_at", "null").execute()
-            
-            if not key_result.data or len(key_result.data) == 0:
-                return None
-            
-            device_id = key_result.data[0]["device_id"]
-            
-            # Update last_used_at
+        # Retry once with connection recovery
+        for attempt in range(2):
             try:
-                client.table("irc_device_api_keys").update({
-                    "last_used_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                }).eq("api_key", self.api_key).execute()
-            except Exception:
-                pass  # Non-critical - continue even if update fails
-            
-            # Get the device info
-            device_result = client.table("irc_devices").select("*").eq("device_id", device_id).execute()
-            
-            if device_result.data and len(device_result.data) > 0:
-                return device_result.data[0]
-            
-            return None
-        except Exception as e:
-            print(f"[WARN] Failed to get device by API key: {e}")
-            return None
+                # Query directly - more reliable than using the RPC function
+                # First, get the device_id from the API key
+                client = self.service_client or self.supabase
+                key_result = client.table("irc_device_api_keys").select("device_id").eq("api_key", self.api_key).eq("is_active", True).is_("revoked_at", "null").execute()
+                
+                if not key_result.data or len(key_result.data) == 0:
+                    return None
+                
+                device_id = key_result.data[0]["device_id"]
+                
+                # Update last_used_at
+                try:
+                    client.table("irc_device_api_keys").update({
+                        "last_used_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    }).eq("api_key", self.api_key).execute()
+                except Exception:
+                    pass  # Non-critical - continue even if update fails
+                
+                # Get the device info
+                device_result = client.table("irc_devices").select("*").eq("device_id", device_id).execute()
+                
+                if device_result.data and len(device_result.data) > 0:
+                    return device_result.data[0]
+                
+                return None
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Check if it's a connection error that might be recoverable
+                if ("server disconnected" in error_msg or 
+                    "connection" in error_msg or 
+                    "timeout" in error_msg or
+                    "broken pipe" in error_msg) and attempt == 0:
+                    # Try to recover by recreating the client
+                    print(f"[WARN] Connection error detected, attempting to recover... ({e})")
+                    try:
+                        self._recreate_clients()
+                        time.sleep(0.5)  # Brief delay before retry
+                    except Exception as recreate_error:
+                        print(f"[WARN] Failed to recreate clients: {recreate_error}")
+                    continue  # Retry once
+                else:
+                    # Log error but don't retry if it's not a connection error or we've already retried
+                    if attempt > 0 or "server disconnected" not in error_msg:
+                        print(f"[WARN] Failed to get device by API key: {e}")
+                    return None
+        
+        return None
     
     def heartbeat(self) -> Dict:
         """Send heartbeat - update last_seen timestamp and system info."""
@@ -500,6 +572,46 @@ class IRCommanderSupabaseClient:
         return result.data[0] if result.data else {}
     
     # === Laps ===
+    def get_average_lap_time(self, track: str, car: str, min_laps: int = 3) -> Optional[float]:
+        """Get average lap time for a car/track combination from historical data.
+        
+        Args:
+            track: Track name/ID
+            car: Car name/ID
+            min_laps: Minimum number of laps required to calculate average (default: 3)
+        
+        Returns:
+            Average lap time in seconds, or None if insufficient data
+        """
+        try:
+            client = self.service_client or self.supabase
+            if not client:
+                return None
+            
+            # Query laps for this car/track combination
+            response = client.table("irc_laps").select("lap_time").eq("track_id", track).eq("car_id", car).order("timestamp", desc=True).limit(100).execute()
+            
+            if not response.data or len(response.data) < min_laps:
+                return None
+            
+            # Calculate average of valid lap times
+            lap_times = []
+            for lap in response.data:
+                lap_time = lap.get("lap_time")
+                if lap_time and 5.0 <= lap_time <= 600.0:  # Valid lap time range
+                    lap_times.append(lap_time)
+            
+            if len(lap_times) < min_laps:
+                return None
+            
+            # Return average
+            avg_time = sum(lap_times) / len(lap_times)
+            return avg_time
+            
+        except Exception as e:
+            print(f"[WARN] Error calculating average lap time: {e}")
+            return None
+
     def upload_lap(self, lap_time: float, track: str, car: str, lap_number: int = None,
                    driver_name: str = None, **metadata) -> Dict:
         """Upload a lap directly to Supabase."""
@@ -507,24 +619,52 @@ class IRCommanderSupabaseClient:
         if not device_info:
             raise SupabaseError("Device not found or API key invalid")
         
+        client = self.service_client or self.supabase
+        
+        # Check for duplicate lap before inserting
+        # Match on device_id, lap_number, lap_time, track, and car to prevent duplicates
+        existing_data = []
+        try:
+            # Select any column that exists (lap_time is safe since we're inserting it)
+            query = client.table("irc_laps").select("lap_time").eq("device_id", device_info["device_id"]).eq("lap_time", lap_time).eq("track_id", track).eq("car_id", car).limit(1)
+            if lap_number is not None:
+                query = query.eq("lap_number", lap_number)
+            else:
+                # If no lap_number, check for laps with null lap_number and same time/track/car
+                query = query.is_("lap_number", "null")
+            
+            existing = query.execute()
+            existing_data = existing.data if existing.data else []
+        except Exception as e:
+            # If query fails, log and continue (better to upload duplicate than fail completely)
+            print(f"[WARN] Duplicate check query failed: {e}, proceeding with upload")
+            existing_data = []
+        
+        if existing_data and len(existing_data) > 0:
+            # Lap already exists, return the existing record
+            print(f"[INFO] Lap {lap_number or 'N/A'}: {lap_time:.3f}s already exists in database, skipping upload")
+            # Return a dict indicating duplicate (we don't need the actual ID)
+            return {"duplicate": True}
+        
+        # Map to correct database column names
         lap_data = {
             "device_id": device_info["device_id"],
             "lap_time": lap_time,
-            "track_name": track,
-            "car_name": car,
-            "is_valid": True,
-            "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "company_id": device_info.get("assigned_tenant_id") or device_info.get("company_id")
+            "track_id": track,  # track_name maps to track_id in DB
+            "car_id": car,  # car_name maps to car_id in DB
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         
         if lap_number:
             lap_data["lap_number"] = lap_number
         if driver_name:
-            lap_data["driver_name"] = driver_name
+            # driver_name is a string, but driver_id in DB is UUID
+            # For now, we'll leave it null if driver_name is provided
+            # TODO: Look up driver_id from driver_name if needed
+            pass
         if metadata:
-            lap_data["metadata"] = metadata
+            lap_data["telemetry"] = metadata  # metadata maps to telemetry jsonb field
         
-        client = self.service_client or self.supabase
         result = client.table("irc_laps").insert(lap_data).execute()
         
         if not result.data:
@@ -539,10 +679,19 @@ class IRCommanderSupabaseClient:
         if not device_info:
             raise SupabaseError("Device not found or API key invalid")
         
-        client = self.service_client or self.supabase
-        result = client.table("irc_device_commands").select("*").eq("device_id", device_info["device_id"]).eq("status", "pending").order("created_at", desc=False).limit(10).execute()
+        def _execute_query():
+            client = self.service_client or self.supabase
+            result = client.table("irc_device_commands").select("*").eq("device_id", device_info["device_id"]).eq("status", "pending").order("created_at", desc=False).limit(10).execute()
+            return result.data or []
         
-        return result.data or []
+        try:
+            return self._retry_with_recovery(_execute_query)
+        except Exception as e:
+            if self._is_connection_error(e):
+                # If retry failed, return empty list instead of raising to avoid breaking the command loop
+                print(f"[WARN] Failed to get commands after retries: {e}")
+                return []
+            raise
     
     def complete_command(self, command_id: str, status: str = "completed", result: Dict = None) -> Dict:
         """Mark command as completed."""
@@ -555,6 +704,43 @@ class IRCommanderSupabaseClient:
         command_result = client.table("irc_device_commands").update(update_data).eq("id", command_id).execute()
         
         return command_result.data[0] if command_result.data else {}
+    
+    def clear_pending_commands(self) -> int:
+        """Mark all pending commands as ignored (called on startup to skip old commands)."""
+        device_info = self._get_device_by_api_key()
+        if not device_info:
+            return 0
+        
+        def _execute_update():
+            client = self.service_client or self.supabase
+            # Get all pending commands
+            pending = client.table("irc_device_commands").select("id").eq("device_id", device_info["device_id"]).eq("status", "pending").execute()
+            
+            if not pending.data:
+                return 0
+            
+            # Mark them all as ignored
+            command_ids = [cmd["id"] for cmd in pending.data]
+            update_data = {
+                "status": "ignored",
+                "result": json.dumps({"reason": "Skipped on application startup - command was pending when app launched"}),
+                "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            }
+            
+            # Update all pending commands in a single query using .in_() filter
+            if command_ids:
+                client.table("irc_device_commands").update(update_data).in_("id", command_ids).execute()
+            
+            return len(command_ids)
+        
+        try:
+            count = self._retry_with_recovery(_execute_update)
+            return count
+        except Exception as e:
+            if self._is_connection_error(e):
+                print(f"[WARN] Failed to clear pending commands after retries: {e}")
+                return 0
+            raise
     
     def close(self):
         """Close client (no-op for Supabase, but kept for compatibility)."""

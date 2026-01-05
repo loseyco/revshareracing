@@ -24,10 +24,35 @@ if errorlevel 1 (
 echo [1/5] Setting up credentials...
 echo.
 
-REM Check if credentials.py already exists
+REM Check if credentials.py already exists and has valid values
 if exist "credentials.py" (
-    echo Using existing credentials.py
-    echo.
+    REM Validate that credentials are not empty
+    python -c "import sys; sys.path.insert(0, '.'); from credentials import SUPABASE_URL, SUPABASE_ANON_KEY; sys.exit(0 if (SUPABASE_URL and SUPABASE_ANON_KEY) else 1)" 2>nul
+    if errorlevel 1 (
+        echo WARNING: credentials.py exists but has empty values!
+        echo.
+        echo Please provide your Supabase credentials:
+        echo.
+        set /p SUPABASE_URL_INPUT="Supabase URL: "
+        set /p SUPABASE_ANON_KEY_INPUT="Supabase Anon Key: "
+        set /p SUPABASE_SERVICE_KEY_INPUT="Supabase Service Role Key (optional): "
+        echo.
+        
+        REM Create credentials.py file using Python helper script
+        python create_credentials.py "%SUPABASE_URL_INPUT%" "%SUPABASE_ANON_KEY_INPUT%" "%SUPABASE_SERVICE_KEY_INPUT%"
+        
+        if errorlevel 1 (
+            echo ERROR: Failed to create credentials.py
+            pause
+            exit /b 1
+        )
+        
+        echo Credentials saved to credentials.py
+        echo.
+    ) else (
+        echo Using existing credentials.py (credentials are set)
+        echo.
+    )
 ) else (
     echo Credentials will be embedded in the executable.
     echo.
@@ -38,8 +63,8 @@ if exist "credentials.py" (
     set /p SUPABASE_SERVICE_KEY_INPUT="Supabase Service Role Key (optional): "
     echo.
     
-    REM Create credentials.py file using Python to handle special characters properly
-    python -c "import sys; url=sys.argv[1]; anon=sys.argv[2]; service=sys.argv[3] if len(sys.argv)>3 else ''; open('credentials.py', 'w').write('''# Embedded Credentials for iRCommander Client\n# This file is generated during the build process.\n# DO NOT commit this file to version control.\n\nSUPABASE_URL = r\"%s\"\nSUPABASE_ANON_KEY = r\"%s\"\nSUPABASE_SERVICE_ROLE_KEY = r\"%s\"\n''' % (url, anon, service))" "%SUPABASE_URL_INPUT%" "%SUPABASE_ANON_KEY_INPUT%" "%SUPABASE_SERVICE_KEY_INPUT%"
+    REM Create credentials.py file using Python helper script
+    python create_credentials.py "%SUPABASE_URL_INPUT%" "%SUPABASE_ANON_KEY_INPUT%" "%SUPABASE_SERVICE_KEY_INPUT%"
     
     if errorlevel 1 (
         echo ERROR: Failed to create credentials.py
@@ -54,7 +79,7 @@ if exist "credentials.py" (
 REM Check if credentials are set via environment variables (takes precedence)
 if defined SUPABASE_URL (
     echo Using credentials from environment variables...
-    python -c "with open('credentials.py', 'w') as f: f.write('''# Embedded Credentials\nSUPABASE_URL = r\"%SUPABASE_URL%\"\nSUPABASE_ANON_KEY = r\"%SUPABASE_ANON_KEY%\"\nSUPABASE_SERVICE_ROLE_KEY = r\"%SUPABASE_SERVICE_ROLE_KEY%\"\n''')"
+    python create_credentials.py "%SUPABASE_URL%" "%SUPABASE_ANON_KEY%" "%SUPABASE_SERVICE_ROLE_KEY%"
     echo Credentials updated from environment variables.
     echo.
 )

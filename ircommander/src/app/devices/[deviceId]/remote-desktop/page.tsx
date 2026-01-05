@@ -28,6 +28,27 @@ export default function RemoteDesktopPage() {
     router.push("/auth/login");
   };
 
+  // Check if error is due to authentication
+  if (error && (error.includes("401") || error.includes("403") || error.includes("Not authenticated"))) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-white text-xl font-semibold mb-4">Authentication Required</div>
+          <div className="text-neutral-400 mb-6">Your session has expired. Please log in again.</div>
+          <button
+            onClick={() => {
+              clearAuth();
+              router.push("/auth/login");
+            }}
+            className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-neutral-950">

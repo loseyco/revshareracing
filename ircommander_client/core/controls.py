@@ -13,8 +13,10 @@ from typing import Dict, List, Optional, Tuple
 if os.name == "nt":
     from ctypes import wintypes
     USER32 = ctypes.windll.user32
+    KERNEL32 = ctypes.windll.kernel32
 else:
     USER32 = None
+    KERNEL32 = None
 
 # Key codes
 VK_MAP = {
@@ -33,6 +35,11 @@ VK_NAMES = {
 
 KEYEVENTF_KEYUP = 0x0002
 SW_RESTORE = 9
+SW_SHOW = 5
+SW_SHOWNA = 8
+
+# Windows API constants for thread attachment
+ASFW_ANY = 0xFFFFFFFF
 
 # Action definitions
 ACTIONS = {
@@ -100,8 +107,8 @@ class ControlsManager:
         
         time.sleep(0.1)
         
-        # For reset_car, hold until state changes if requested
-        if action == "reset_car" and hold_until_state_change:
+        # For reset_car and enter_car, hold until state changes if requested
+        if action in ("reset_car", "enter_car") and hold_until_state_change:
             success = self._send_keys_until_state_change(combo)
         else:
             # Hold reset_car and enter_car keys for 1 second (default behavior)
@@ -120,8 +127,8 @@ class ControlsManager:
         return self._send_keys(combo)
     
     def focus_iracing(self) -> bool:
-        """Focus the iRacing window."""
-        if USER32 is None:
+        """Focus the iRacing window. Works from background threads using AttachThreadInput."""
+        if USER32 is None or KERNEL32 is None:
             return False
         
         hwnd = self._find_iracing_hwnd()
@@ -129,17 +136,66 @@ class ControlsManager:
             return False
         
         try:
+            # Restore if minimized
             if USER32.IsIconic(hwnd):
                 USER32.ShowWindow(hwnd, SW_RESTORE)
                 time.sleep(0.1)
             
-            USER32.SetForegroundWindow(hwnd)
-            USER32.BringWindowToTop(hwnd)
-            time.sleep(0.1)
+            # Get the thread ID of the foreground window
+            foreground_hwnd = USER32.GetForegroundWindow()
+            if foreground_hwnd:
+                foreground_thread_id = USER32.GetWindowThreadProcessId(foreground_hwnd, None)
+                current_thread_id = KERNEL32.GetCurrentThreadId()
+                
+                # Attach our thread to the foreground thread to allow SetForegroundWindow
+                if foreground_thread_id != current_thread_id:
+                    USER32.AttachThreadInput(current_thread_id, foreground_thread_id, True)
+                    try:
+                        USER32.SetForegroundWindow(hwnd)
+                        USER32.BringWindowToTop(hwnd)
+                        time.sleep(0.05)
+                    finally:
+                        USER32.AttachThreadInput(current_thread_id, foreground_thread_id, False)
+                else:
+                    # Already in the foreground thread
+                    USER32.SetForegroundWindow(hwnd)
+                    USER32.BringWindowToTop(hwnd)
+                    time.sleep(0.05)
+            else:
+                # No foreground window, try directly
+                USER32.SetForegroundWindow(hwnd)
+                USER32.BringWindowToTop(hwnd)
+                time.sleep(0.05)
             
-            return USER32.GetForegroundWindow() == hwnd
-        except Exception:
-            return False
+            # Verify focus was successful (give it a moment to settle)
+            time.sleep(0.1)
+            focused = USER32.GetForegroundWindow() == hwnd
+            
+            # If not focused, try again with ShowWindow(SW_SHOW) which can help
+            if not focused:
+                try:
+                    USER32.ShowWindow(hwnd, SW_SHOW)
+                    time.sleep(0.1)
+                    # Try one more time
+                    USER32.SetForegroundWindow(hwnd)
+                    USER32.BringWindowToTop(hwnd)
+                    time.sleep(0.15)
+                    focused = USER32.GetForegroundWindow() == hwnd
+                except Exception:
+                    pass
+            
+            return focused
+        except Exception as e:
+            # Fallback: try simple approach with ShowWindow first
+            try:
+                USER32.ShowWindow(hwnd, SW_SHOW)
+                time.sleep(0.1)
+                USER32.SetForegroundWindow(hwnd)
+                USER32.BringWindowToTop(hwnd)
+                time.sleep(0.15)
+                return USER32.GetForegroundWindow() == hwnd
+            except:
+                return False
     
     def iracing_window_exists(self) -> bool:
         """Check if iRacing window exists."""
@@ -401,6 +457,11 @@ _manager: Optional[ControlsManager] = None
 
 def get_manager() -> ControlsManager:
     global _manager
+    if _manager is None:
+        _manager = ControlsManager()
+    return _manager
+
+
     if _manager is None:
         _manager = ControlsManager()
     return _manager

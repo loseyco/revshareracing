@@ -4,8 +4,61 @@ iRCommander Client - Entry Point
 
 import sys
 import argparse
+import os
 
 from config import VERSION
+
+
+def check_single_instance():
+    """Check if another instance is already running. Returns True if this is the only instance."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        
+        # Create a named mutex
+        mutex_name = "Global\\iRCommander_SingleInstance_Mutex"
+        
+        # Try to create the mutex
+        mutex = ctypes.windll.kernel32.CreateMutexW(
+            None,  # Default security attributes
+            True,  # Initial owner (this process)
+            mutex_name
+        )
+        
+        # Check if mutex already exists (another instance is running)
+        error = ctypes.get_last_error()
+        if error == 183:  # ERROR_ALREADY_EXISTS
+            print("[ERROR] Another instance of iRCommander is already running!")
+            print("[INFO] Please close the existing instance before starting a new one.")
+            return False
+        
+        return True
+    else:
+        # For non-Windows, use a lock file
+        lock_file = os.path.join(os.path.expanduser("~"), ".ircommander.lock")
+        
+        if os.path.exists(lock_file):
+            # Check if the process is still running
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                # Try to send signal 0 to check if process exists
+                os.kill(pid, 0)
+                print("[ERROR] Another instance of iRCommander is already running!")
+                print(f"[INFO] PID: {pid}")
+                return False
+            except (OSError, ValueError):
+                # Process doesn't exist, remove stale lock file
+                os.remove(lock_file)
+        
+        # Create lock file
+        try:
+            with open(lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            return True
+        except Exception as e:
+            print(f"[WARN] Could not create lock file: {e}")
+            return True  # Continue anyway
 
 
 def run_gui():
@@ -44,6 +97,10 @@ def run_headless():
 
 
 def main():
+    # Check for single instance
+    if not check_single_instance():
+        sys.exit(1)
+    
     parser = argparse.ArgumentParser(description="iRCommander Client")
     parser.add_argument("--headless", "-H", action="store_true",
                        help="Run without GUI")

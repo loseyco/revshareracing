@@ -4,12 +4,6 @@ PyInstaller spec file for iRCommander Client
 Creates a single executable file
 """
 
-# -*- mode: python ; coding: utf-8 -*-
-"""
-PyInstaller spec file for iRCommander Client
-Creates a single executable file
-"""
-
 block_cipher = None
 
 # Collect all Python files
@@ -30,7 +24,8 @@ a = Analysis(
         'supabase',
         'supabase.client',
         'supabase.lib.client_options',
-        # iRacing SDK
+        # iRacing SDK - package is pyirsdk but imported as irsdk
+        'irsdk',
         'pyirsdk',
         # Other dependencies
         'requests',
@@ -51,6 +46,11 @@ a = Analysis(
         'core.joystick_config',
         'core.joystick_monitor',
         'core.remote_desktop',
+        'core.network_discovery',
+        # Credentials module (must be included)
+        'credentials',
+        # API client (if used)
+        'api_client',
     ],
     hookspath=[],
     hooksconfig={},
@@ -84,7 +84,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Set to True if you want to see console output
+    console=False,  # Set to False to hide console window (GUI only)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

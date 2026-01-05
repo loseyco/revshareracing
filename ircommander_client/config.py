@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Version
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 # Determine base path
 if getattr(sys, 'frozen', False):
@@ -46,6 +46,13 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', _default_serv
 # Legacy API URL support (for backward compatibility, but not used)
 IRCOMMANDER_API_URL = os.getenv('IRCOMMANDER_API_URL', '')
 GRIDPASS_API_URL = os.getenv('GRIDPASS_API_URL', '')
+
+# Vercel Blob Storage (for large file uploads)
+VERCEL_BLOB_TOKEN = os.getenv('VERCEL_BLOB_TOKEN', os.getenv('BLOB_READ_WRITE_TOKEN', ''))
+VERCEL_BLOB_STORE_ID = os.getenv('VERCEL_BLOB_STORE_ID', '')
+
+# API URL for uploads (uses Vercel Blob via API route)
+IRCOMMANDER_API_URL = os.getenv('IRCOMMANDER_API_URL', 'https://ircommander.gridpass.app')
 
 # Data directory
 DATA_DIR = BASE_PATH / 'data'

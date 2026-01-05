@@ -449,6 +449,32 @@ class IRCommanderAPI:
             data["result"] = result
         return self._request("POST", f"/api/v1/device/commands/{command_id}/complete", data)
     
+    def clear_pending_commands(self) -> int:
+        """Mark all pending commands as ignored (called on startup to skip old commands)."""
+        try:
+            # Get all pending commands
+            pending = self._request("GET", "/api/v1/device/commands?status=pending")
+            if not pending or not isinstance(pending, list):
+                return 0
+            
+            # Mark them all as ignored
+            count = 0
+            for cmd in pending:
+                try:
+                    self.complete_command(
+                        cmd["id"],
+                        status="ignored",
+                        result={"reason": "Skipped on application startup - command was pending when app launched"}
+                    )
+                    count += 1
+                except Exception as e:
+                    print(f"[WARN] Failed to clear command {cmd.get('id', 'unknown')}: {e}")
+            
+            return count
+        except Exception as e:
+            print(f"[WARN] Failed to clear pending commands: {e}")
+            return 0
+    
     # === Remote Desktop (WebRTC) ===
     def create_webrtc_offer(self, offer_sdp: str) -> Dict:
         """Create WebRTC offer and get answer from device."""

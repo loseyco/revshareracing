@@ -4,6 +4,7 @@ Simple, clean interface for monitoring and control.
 """
 
 import sys
+import os
 from typing import Optional
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,6 +20,12 @@ from service import IRCommanderService, get_service
 from supabase_client import SupabaseError
 from config import VERSION
 from core import joystick_config, joystick_monitor
+try:
+    from core.overlay import create_overlay
+    OVERLAY_AVAILABLE = True
+except ImportError:
+    OVERLAY_AVAILABLE = False
+    create_overlay = None
 
 
 class LoginDialog(QDialog):
@@ -249,14 +256,20 @@ class IRCommanderWindow(QMainWindow):
         self.service: IRCommanderService = get_service()
         self.joystick_config = joystick_config.get_config()
         self._setting_button = None  # Track which button we're currently setting
+        
+        # Overlay - will be created after device is registered
+        self.overlay = None
+        
         self._setup_ui()
         self._setup_timer()
         self.service.start()
         self._update_joystick_display()
+        # Initial state update to set button visibility
+        self._update_ui()
     
     def _setup_ui(self):
         self.setWindowTitle(f"iRCommander v{VERSION}")
-        self.setMinimumSize(500, 750)
+        self.setMinimumSize(500, 700)
         self.resize(550, 800)
         self.setStyleSheet("""
             QMainWindow { background-color: #111827; }
@@ -321,17 +334,6 @@ class IRCommanderWindow(QMainWindow):
         conn_layout.setColumnStretch(1, 1)
         layout.addWidget(conn_group)
         
-        # Network Peers
-        peers_group = QGroupBox("Network Peers")
-        peers_layout = QVBoxLayout(peers_group)
-        
-        self.peers_label = QLabel("No peers discovered")
-        self.peers_label.setStyleSheet("color: #9ca3af; font-size: 11px;")
-        self.peers_label.setWordWrap(True)
-        peers_layout.addWidget(self.peers_label)
-        
-        layout.addWidget(peers_group)
-        
         # Telemetry
         telem_group = QGroupBox("Telemetry")
         telem_layout = QVBoxLayout(telem_group)
@@ -342,11 +344,15 @@ class IRCommanderWindow(QMainWindow):
         self.speed_row = StatusRow("Speed")
         self.laps_recorded_row = StatusRow("Laps Recorded")
         
+        # Car State on one line
+        self.car_state_row = StatusRow("Car State")
+        
         telem_layout.addWidget(self.track_row)
         telem_layout.addWidget(self.car_row)
         telem_layout.addWidget(self.lap_row)
         telem_layout.addWidget(self.speed_row)
         telem_layout.addWidget(self.laps_recorded_row)
+        telem_layout.addWidget(self.car_state_row)
         layout.addWidget(telem_group)
         
         # Combined Controls Configuration
@@ -367,10 +373,17 @@ class IRCommanderWindow(QMainWindow):
         ctrl_layout_manual = QHBoxLayout()
         ctrl_layout_manual.setSpacing(8)
         
-        # Enter/Reset Car button (context-aware)
-        self.enter_reset_btn = QPushButton("Enter Car / Reset Car")
-        self.enter_reset_btn.clicked.connect(self._execute_enter_reset)
-        self.enter_reset_btn.setStyleSheet("padding: 8px;")
+        # Enter Car button (shown when NOT in car)
+        self.enter_car_btn = QPushButton("Enter Car")
+        self.enter_car_btn.clicked.connect(lambda: self._execute_action("enter_car"))
+        self.enter_car_btn.setStyleSheet("padding: 8px;")
+        self.enter_car_btn.setVisible(False)  # Hidden by default, shown based on state
+        
+        # Reset Car button (shown when IN car)
+        self.reset_car_btn = QPushButton("Reset Car")
+        self.reset_car_btn.clicked.connect(lambda: self._execute_action("reset_car"))
+        self.reset_car_btn.setStyleSheet("padding: 8px;")
+        self.reset_car_btn.setVisible(False)  # Hidden by default, shown based on state
         
         # Ignition button
         self.ignition_btn = QPushButton("Ignition")
@@ -382,7 +395,8 @@ class IRCommanderWindow(QMainWindow):
         self.pit_limiter_btn.clicked.connect(lambda: self._execute_action("pit_speed_limiter"))
         self.pit_limiter_btn.setStyleSheet("padding: 8px;")
         
-        ctrl_layout_manual.addWidget(self.enter_reset_btn)
+        ctrl_layout_manual.addWidget(self.enter_car_btn)
+        ctrl_layout_manual.addWidget(self.reset_car_btn)
         ctrl_layout_manual.addWidget(self.ignition_btn)
         ctrl_layout_manual.addWidget(self.pit_limiter_btn)
         controls_layout.addLayout(ctrl_layout_manual)
@@ -474,6 +488,25 @@ class IRCommanderWindow(QMainWindow):
         self.speed_row.set_value(f"{iracing['speed_kph']:.0f} km/h")
         self.laps_recorded_row.set_value(str(supabase["laps_recorded"]))
         
+        # Car State on one line
+        in_car = iracing.get("in_car", False)
+        in_pits = iracing.get("in_pits", False)
+        in_garage = iracing.get("in_garage", False)
+        on_track = iracing.get("on_track", False)
+        is_moving = iracing.get("is_moving", False)
+        
+        state_parts = []
+        state_parts.append("In Car" if in_car else "Out")
+        if in_garage:
+            state_parts.append("In Garage")
+        elif in_pits:
+            state_parts.append("In Pits")
+        elif on_track:
+            state_parts.append("On Track")
+        state_parts.append("Moving" if is_moving else "Stopped")
+        car_state_text = " | ".join([s for s in state_parts if s])
+        self.car_state_row.set_value(car_state_text)
+        
         # Keybindings
         self._update_bindings_display()
         
@@ -483,9 +516,6 @@ class IRCommanderWindow(QMainWindow):
         
         # Update monitoring status
         self._update_monitoring_status()
-        
-        # Network peers
-        self._update_peers_display()
         
         # Account info
         if self.service.client.is_logged_in:
@@ -502,51 +532,91 @@ class IRCommanderWindow(QMainWindow):
         
         # Device
         device_name = supabase.get("device_name") or supabase.get("name") or "N/A"
+        device_id = supabase.get("device_id")
         self.device_name_row.set_value(device_name)
-        self.device_id_row.set_value(supabase["device_id"])
+        if device_id:
+            self.device_id_row.set_value(device_id)
+            
+            # Overlay disabled for now
+            # if OVERLAY_AVAILABLE and create_overlay and not self.overlay:
+            #     try:
+            #         # Get base URL from Supabase URL (replace .supabase.co with the API domain)
+            #         # For production: https://xxxxx.supabase.co -> https://ircommander.gridpass.app
+            #         # For development: could use localhost or environment variable
+            #         from config import SUPABASE_URL
+            #         import os
+            #         api_url = os.environ.get("IRCOMMANDER_API_URL")
+            #         if not api_url:
+            #             # Try to extract from Supabase URL or default to production
+            #             if "supabase.co" in SUPABASE_URL:
+            #                 api_url = "https://ircommander.gridpass.app"
+            #             else:
+            #                 api_url = "http://localhost:3000"
+            #         
+            #         # TEST MODE: Use google.com for testing
+            #         overlay_url = "https://www.google.com"
+            #         # overlay_url = f"{api_url}/overlay/{device_id}"
+            #         print(f"[OVERLAY] TEST MODE: Creating overlay for device {device_id} at {overlay_url}")
+            #         self.overlay = create_overlay(overlay_url)
+            #         if self.overlay:
+            #             print(f"[OK] Overlay created for device {device_id}")
+            #         else:
+            #             print(f"[WARN] Overlay creation returned None for device {device_id}")
+            #     except Exception as e:
+            #         print(f"[WARN] Failed to create overlay: {e}")
+            #         import traceback
+            #         traceback.print_exc()
+        else:
+            self.device_id_row.set_value("Not registered")
         
-        # Enable/disable controls based on iRacing connection
+        # State-based button visibility and enabling
         connected = iracing["connected"]
-        self.enter_reset_btn.setEnabled(connected)
-        self.ignition_btn.setEnabled(connected)
-        self.pit_limiter_btn.setEnabled(connected)
+        in_car = iracing.get("in_car", False)
+        in_pits = iracing.get("in_pits", False)
+        
+        # Show/hide Enter Car and Reset Car buttons based on state
+        # Enter Car: Show when NOT in car (regardless of connection, but enable only when connected)
+        self.enter_car_btn.setVisible(not in_car)
+        self.enter_car_btn.setEnabled(connected and not in_car)
+        
+        # Reset Car: Show when IN car (regardless of connection, but enable only when connected)
+        self.reset_car_btn.setVisible(in_car)
+        self.reset_car_btn.setEnabled(connected and in_car)
+        
+        # Ignition and Pit Limiter - only enable when in car and connected
+        self.ignition_btn.setEnabled(connected and in_car)
+        self.pit_limiter_btn.setEnabled(connected and in_car and in_pits)
         
         # Update button text with keybindings
-        self._update_enter_reset_button_text()
+        self._update_enter_car_button_text()
+        self._update_reset_car_button_text()
         self._update_pit_limiter_button_text()
+        
+        # Overlay updates automatically via the webpage (no client-side updates needed)
     
-    def _execute_enter_reset(self):
-        """Execute enter_car or reset_car based on context."""
-        try:
-            from core import telemetry
-            current = telemetry.get_current()
-            in_car = current and current.get("is_on_track_car", False)
-            
-            if in_car:
-                result = self.service.reset_car()
-                print(f"[ACTION] reset_car: {result}")
-            else:
-                result = self.service.execute_action("enter_car")
-                print(f"[ACTION] enter_car: {result}")
-        except Exception as e:
-            # Fallback to enter_car if telemetry check fails
-            result = self.service.execute_action("enter_car")
-            print(f"[ACTION] enter_car (fallback): {result}")
-    
-    def _update_enter_reset_button_text(self):
-        """Update the enter/reset button text with keybinding."""
+    def _update_enter_car_button_text(self):
+        """Update the enter car button text with keybinding."""
         try:
             bindings = self.service.controls.get_bindings()
             enter_combo = bindings.get("enter_car", {}).get("combo", "")
-            reset_combo = bindings.get("reset_car", {}).get("combo", "")
-            
-            combo = enter_combo if enter_combo and enter_combo != "Not set" else reset_combo
-            if combo and combo != "Not set":
-                self.enter_reset_btn.setText(f"Enter Car / Reset Car ({combo})")
+            if enter_combo and enter_combo != "Not set":
+                self.enter_car_btn.setText(f"Enter Car ({enter_combo})")
             else:
-                self.enter_reset_btn.setText("Enter Car / Reset Car")
+                self.enter_car_btn.setText("Enter Car")
         except Exception:
-            self.enter_reset_btn.setText("Enter Car / Reset Car")
+            self.enter_car_btn.setText("Enter Car")
+    
+    def _update_reset_car_button_text(self):
+        """Update the reset car button text with keybinding."""
+        try:
+            bindings = self.service.controls.get_bindings()
+            reset_combo = bindings.get("reset_car", {}).get("combo", "")
+            if reset_combo and reset_combo != "Not set":
+                self.reset_car_btn.setText(f"Reset Car ({reset_combo})")
+            else:
+                self.reset_car_btn.setText("Reset Car")
+        except Exception:
+            self.reset_car_btn.setText("Reset Car")
     
     def _update_pit_limiter_button_text(self):
         """Update the pit limiter button text with keybinding."""
@@ -628,8 +698,9 @@ class IRCommanderWindow(QMainWindow):
             else:
                 self.ignition_btn.setText("Ignition")
             
-            # Update enter/reset button
-            self._update_enter_reset_button_text()
+            # Update enter/reset buttons
+            self._update_enter_car_button_text()
+            self._update_reset_car_button_text()
             
             # Update pit limiter button
             self._update_pit_limiter_button_text()
@@ -755,33 +826,82 @@ class IRCommanderWindow(QMainWindow):
             self.monitor_status_label.setText("Error")
             self.monitor_status_label.setStyleSheet("color: #ef4444;")
     
-    def _update_peers_display(self):
-        """Update the network peers display."""
-        try:
-            peers = self.service.get_discovered_peers(online_only=True)
-            if not peers:
-                self.peers_label.setText("No peers discovered")
-                self.peers_label.setStyleSheet("color: #9ca3af; font-size: 11px;")
-            else:
-                peer_texts = []
-                for peer in peers:
-                    iracing_status = "🟢" if peer.get("iracing_connected") else "⚪"
-                    peer_text = f"{iracing_status} {peer.get('device_name', 'Unknown')} ({peer.get('local_ip', 'N/A')})"
-                    peer_texts.append(peer_text)
-                
-                text = f"{len(peers)} peer(s) found:\n" + "\n".join(peer_texts)
-                self.peers_label.setText(text)
-                self.peers_label.setStyleSheet("color: #22c55e; font-size: 11px;")
-        except Exception as e:
-            self.peers_label.setText("Error discovering peers")
-            self.peers_label.setStyleSheet("color: #ef4444; font-size: 11px;")
-    
     def closeEvent(self, event):
+        if self.overlay:
+            try:
+                self.overlay.close()
+            except Exception:
+                pass
         self.service.stop()
+        # Clean up single instance mutex on Windows
+        if sys.platform == "win32":
+            import ctypes
+            mutex_name = "Global\\iRCommander_SingleInstance_Mutex"
+            # Release mutex by closing handle (will be automatically released on process exit)
+            pass
         event.accept()
 
 
+def check_single_instance():
+    """Check if another instance is already running. Returns True if this is the only instance."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        
+        # Create a named mutex
+        mutex_name = "Global\\iRCommander_SingleInstance_Mutex"
+        
+        # Try to create the mutex
+        mutex = ctypes.windll.kernel32.CreateMutexW(
+            None,  # Default security attributes
+            True,  # Initial owner (this process)
+            mutex_name
+        )
+        
+        # Check if mutex already exists (another instance is running)
+        error = ctypes.get_last_error()
+        if error == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        
+        return True
+    else:
+        # For non-Windows, use a lock file
+        lock_file = os.path.join(os.path.expanduser("~"), ".ircommander.lock")
+        
+        if os.path.exists(lock_file):
+            # Check if the process is still running
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                # Try to send signal 0 to check if process exists
+                os.kill(pid, 0)
+                return False
+            except (OSError, ValueError):
+                # Process doesn't exist, remove stale lock file
+                os.remove(lock_file)
+        
+        # Create lock file
+        try:
+            with open(lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            return True
+        except Exception:
+            return True  # Continue anyway
+
+
 def main():
+    # Check for single instance before creating GUI
+    if not check_single_instance():
+        # Create a minimal QApplication just for the message box
+        app = QApplication(sys.argv)
+        QMessageBox.warning(
+            None,
+            "iRCommander Already Running",
+            "Another instance of iRCommander is already running.\n\n"
+            "Please close the existing instance before starting a new one."
+        )
+        sys.exit(1)
+    
     app = QApplication(sys.argv)
     
     # Dark palette

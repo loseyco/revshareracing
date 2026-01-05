@@ -74,6 +74,7 @@ export function clearAuth(): void {
 
 /**
  * Make authenticated API request
+ * Automatically redirects to login on 401/403 responses
  */
 export async function authenticatedFetch(
   url: string,
@@ -81,14 +82,34 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   const token = getAccessToken();
   
-  const headers = new Headers(options.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  // If no token, redirect to login immediately
+  if (!token) {
+    if (typeof window !== "undefined") {
+      clearAuth();
+      window.location.href = "/auth/login";
+    }
+    return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" }
+    });
   }
+  
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", `Bearer ${token}`);
   headers.set("Content-Type", "application/json");
 
-  return fetch(url, {
+  const response = await fetch(url, {
     ...options,
     headers,
   });
+
+  // If we get 401 or 403, user is not authenticated - redirect to login
+  if (response.status === 401 || response.status === 403) {
+    if (typeof window !== "undefined") {
+      clearAuth();
+      window.location.href = "/auth/login";
+    }
+  }
+
+  return response;
 }

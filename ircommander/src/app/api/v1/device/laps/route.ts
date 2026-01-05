@@ -68,32 +68,24 @@ export async function POST(request: NextRequest) {
     // Get tenant from device
     const tenantId = device.assigned_tenant_id || device.company_id;
     
-    // Prepare lap records
+    // Prepare lap records - map track_name/car_name to track_id/car_id
+    // Note: track_name and car_name from client are used as track_id and car_id
     const lapRecords = lapsToInsert.map(lap => ({
       device_id: device.device_id,
-      user_id: lap.user_id || null,
-      driver_name: lap.driver_name || null,
+      driver_id: lap.user_id || null, // user_id from client maps to driver_id in DB
       lap_time: lap.lap_time,
       lap_number: lap.lap_number || null,
-      track_name: lap.track_name,
-      car_name: lap.car_name,
-      session_type: lap.session_type || null,
-      is_valid: lap.is_valid ?? true,
-      sector_times: lap.sector_times || null,
-      incident_count: lap.incident_count || null,
-      fuel_used: lap.fuel_used || null,
-      tire_wear: lap.tire_wear || null,
-      weather: lap.weather || null,
-      recorded_at: lap.recorded_at || new Date().toISOString(),
-      metadata: lap.metadata || null,
-      company_id: tenantId,
+      track_id: lap.track_name, // track_name from client maps to track_id in DB
+      car_id: lap.car_name, // car_name from client maps to car_id in DB
+      timestamp: lap.recorded_at || new Date().toISOString(),
+      telemetry: lap.metadata || null, // metadata maps to telemetry jsonb field
     }));
     
     // Insert laps
     const { data: insertedLaps, error: insertError } = await supabase
       .from("irc_laps")
       .insert(lapRecords)
-      .select("id, lap_time, track_name, car_name, recorded_at");
+      .select("lap_id, lap_time, track_id, car_id, timestamp");
     
     if (insertError) {
       console.error("Error inserting laps:", insertError);
