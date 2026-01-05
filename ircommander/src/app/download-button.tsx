@@ -19,15 +19,25 @@ export default function DownloadButton() {
   useEffect(() => {
     // Fetch latest release info
     fetch("/api/v1/releases/latest")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data: ReleaseInfo) => {
         setRelease(data);
         setLoading(false);
+        setError(null); // Clear any previous errors
       })
       .catch((err) => {
         console.error("Failed to fetch release info:", err);
-        setError("Failed to load release information");
+        // Don't show error if we have a fallback - API always returns data
         setLoading(false);
+        // Only set error if we truly can't get any release info
+        if (!release) {
+          setError("Failed to load release information");
+        }
       });
   }, []);
 
