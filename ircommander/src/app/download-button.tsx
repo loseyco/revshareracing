@@ -45,7 +45,16 @@ export default function DownloadButton() {
     setError(null);
 
     try {
-      // Fetch the file from Supabase Storage
+      // Check if it's a GitHub Releases URL or external URL
+      // For external URLs (like GitHub Releases), just redirect
+      if (url.includes("github.com") || url.includes("http://") || url.includes("https://")) {
+        // For external URLs, open in new tab/window to trigger download
+        window.open(url, "_blank");
+        setDownloading(false);
+        return;
+      }
+
+      // For Supabase Storage URLs, fetch as blob
       const response = await fetch(url);
       
       if (!response.ok) {
