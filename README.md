@@ -1,17 +1,15 @@
-# GridPass Platform + RevShareRacing
+# iRCommander
 
-**Multi-tenant sim racing management platform**
+**iRacing rig management platform - Fresh start**
 
 ---
 
 ## 📋 **Overview**
 
-This repository contains two related but legally separate entities:
-
-1. **GridPass** - The platform that manages racing rigs, queues, and telemetry
-2. **RevShareRacing** - A tenant application that uses GridPass for sim racing experiences
-
-This separation allows GridPass to operate as an independent B2B platform while RevShareRacing focuses on the consumer racing experience.
+iRCommander is a complete refactor of the GridPass platform, providing:
+- **Website & API** - Next.js app hosted at `ircommander.gridpass.app`
+- **Client** - Python service that runs on racing rigs
+- **Same Supabase** - Uses existing database (no migration needed)
 
 ---
 
@@ -23,31 +21,26 @@ This separation allows GridPass to operate as an independent B2B platform while 
                     └────────────────┬─────────────────┘
                                      │
                     ┌────────────────▼─────────────────┐
-                    │      RevShareRacing.com          │
-                    │      (Tenant Application)        │
-                    │      web-app/                    │
-                    └────────────────┬─────────────────┘
-                                     │ API calls
-                    ┌────────────────▼─────────────────┐
-                    │        GridPass.app              │
-                    │    (Platform - gridpass-app/)    │
+                    │    ircommander.gridpass.app      │
+                    │    (Website + API - ircommander/)│
                     │  • Public REST APIs              │
                     │  • Authentication                │
-                    │  • Tenant Management             │
+                    │  • Device Management             │
                     └────────────────┬─────────────────┘
                                      │
                     ┌────────────────▼─────────────────┐
                     │         Supabase                 │
                     │       (Database Layer)           │
                     └────────────────▲─────────────────┘
-                                     │ Direct access
+                                     │ API calls
                     ┌────────────────┴─────────────────┐
-                    │       PC Service                 │
-                    │      (pc-service/)               │
-                    │  • Runs on each rig              │
-                    │  • iRacing SDK integration       │
-                    │  • Telemetry & lap collection    │
-                    └──────────────────────────────────┘
+                    │   iRCommander Client                │
+                    │   (ircommander_client/)              │
+                    │  • Runs on each rig               │
+                    │  • iRacing SDK integration        │
+                    │  • Telemetry & lap collection     │
+                    │  • API-first architecture         │
+                    └───────────────────────────────────┘
 ```
 
 ---
@@ -56,85 +49,78 @@ This separation allows GridPass to operate as an independent B2B platform while 
 
 ```
 RevShareRacing/
-├── gridpass-app/           # GridPass Platform (NEW)
-│   ├── src/app/api/v1/     # Public REST APIs
-│   ├── src/lib/            # Platform utilities
-│   └── README.md           # Platform documentation
+├── ircommander/              # 🌐 Website + API (Next.js)
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── api/v1/       # REST API endpoints
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx
+│   │   └── lib/              # Utilities
+│   └── package.json
 │
-├── web-app/                # RevShareRacing.com (Tenant)
-│   ├── src/app/            # Next.js pages and API routes
-│   ├── src/components/     # React components
-│   ├── src/lib/            # Client libraries (incl. GridPass client)
-│   └── README.md           # Tenant app documentation
+├── ircommander_client/         # 🖥️ Client (Python)
+│   ├── api_client.py         # IRCommanderAPI client
+│   ├── service.py            # Main service
+│   ├── gui.py                # PyQt6 GUI
+│   └── core/                 # Core modules
 │
-├── pc-service/             # PC Service (Part of GridPass)
-│   ├── src/                # Python service code
-│   ├── data/               # Local device config
-│   └── README.md           # Service documentation
+├── gridpass-app/             # 📦 Old app (can archive)
 │
-├── migrations/             # Database migrations
-│   └── create_gridpass_tenants.sql  # Multi-tenant setup
+├── migrations/               # 📊 Database Migrations
 │
-└── docs/                   # Documentation
-    ├── architecture/       # System architecture
-    ├── guides/             # How-to guides
-    └── decisions/          # Architecture decisions
+└── docs/                     # 📚 Documentation
 ```
 
 ---
 
 ## 🚀 **Quick Start**
 
-### **GridPass Platform (gridpass-app/)**
+### **iRCommander Website/API (ircommander/)**
 ```bash
-cd gridpass-app
+cd ircommander
 npm install
 npm run dev  # Runs on port 3001
 ```
 
-### **RevShareRacing (web-app/)**
+### **iRCommander Client (ircommander_client/)**
 ```bash
-cd web-app
-npm install
-npm run dev  # Runs on port 3000
-```
-
-### **PC Service (pc-service/)**
-```bash
-cd pc-service
+cd ircommander_client
 pip install -r requirements.txt
-python start.py
+
+# Run with GUI
+python main.py
+
+# Run headless
+python main.py --headless
 ```
 
 ---
 
 ## 🔐 **Configuration**
 
-### **GridPass Platform**
-Create `gridpass-app/.env.local`:
+### **iRCommander Website/API**
+Create `ircommander/.env.local`:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-### **RevShareRacing**
-Create `web-app/.env.local`:
+### **iRCommander Client**
+Create `ircommander_client/.env`:
 ```env
-# Direct Supabase access (current mode)
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+# Point to your iRCommander deployment
+IRCOMMANDER_API_URL=https://ircommander.gridpass.app
 
-# To use GridPass APIs instead:
-NEXT_PUBLIC_USE_GRIDPASS=true
-NEXT_PUBLIC_GRIDPASS_API_URL=https://gridpass.app
-GRIDPASS_TENANT_KEY=your-tenant-api-key
+# Or for local development:
+IRCOMMANDER_API_URL=http://localhost:3001
 ```
+
+**⚠️ Important:** The client must point to the same URL where your `ircommander/` app is deployed.
 
 ---
 
-## 📡 **GridPass API Endpoints**
+## 📡 **API Endpoints**
 
 ### Authentication
 - `POST /api/v1/auth/login` - User login
@@ -143,9 +129,13 @@ GRIDPASS_TENANT_KEY=your-tenant-api-key
 - `GET /api/v1/auth/me` - Current user profile
 
 ### Devices
-- `GET /api/v1/devices` - List devices
-- `GET /api/v1/devices/:id` - Device details
-- `GET /api/v1/devices/:id/status` - Real-time status
+- `POST /api/v1/device/register` - Register device
+- `POST /api/v1/device/heartbeat` - Device heartbeat
+- `GET /api/v1/device/status` - Device status
+- `PUT /api/v1/device/status` - Update device status
+- `POST /api/v1/device/laps` - Upload lap data
+- `GET /api/v1/device/commands` - Poll for commands
+- `POST /api/v1/device/commands/:id/complete` - Complete command
 
 ### Queue
 - `GET /api/v1/devices/:id/queue` - Current queue
@@ -161,36 +151,50 @@ GRIDPASS_TENANT_KEY=your-tenant-api-key
 
 ---
 
-## 🎯 **Key Benefits**
+## 🚢 **Deployment**
 
-1. **Legal Separation** - GridPass and RevShareRacing are independent entities
-2. **Multi-tenant** - GridPass can serve multiple racing companies
-3. **API-First** - Clean contract between platform and tenants
-4. **Scalable** - Each component scales independently
-5. **Maintainable** - Clear separation of concerns
+### Vercel (Website/API)
+1. Create new Vercel project: `ircommander`
+2. Connect to `ircommander/` directory
+3. Set custom domain: `ircommander.gridpass.app`
+4. Set environment variables in Vercel dashboard
+5. Deploy: `vercel --prod`
+
+### Client
+The client runs on Windows machines with iRacing installed. No deployment needed - just run `python main.py` or use the compiled executable.
 
 ---
 
 ## 📚 **Documentation**
 
-- [Architecture Overview](docs/architecture/ARCHITECTURE.md)
-- [GridPass Platform](gridpass-app/README.md)
-- [RevShareRacing Web App](web-app/README.md)
-- [PC Service](pc-service/README.md)
-- [Database Migrations](migrations/)
+- [Refactor Notes](REFACTOR_NOTES.md) - Details about the refactor
+- [Project Structure](PROJECT_STRUCTURE.md) - Directory structure
+- [Vercel Projects](VERCEL_PROJECTS.md) - Vercel project reference
+- [Configuration Guide](docs/guides/CONFIGURATION.md) - Setup help
 
 ---
 
-## 🔄 **Migration Mode**
+## 🔄 **Migration from GridPass**
 
-RevShareRacing can operate in two modes:
+This is a **fresh start** with the same Supabase database:
+- ✅ All API routes migrated
+- ✅ Same database schema
+- ✅ Same authentication
+- ✅ New branding: "iRCommander"
+- ✅ New URL: `ircommander.gridpass.app`
 
-1. **Direct Mode** (current) - Direct Supabase access
-2. **GridPass Mode** - API calls to GridPass platform
-
-Set `NEXT_PUBLIC_USE_GRIDPASS=true` to switch to GridPass mode.
+**No database migration needed** - just update your client configuration to point to the new URL.
 
 ---
 
-**Version:** 4.0.0 (GridPass Platform)  
-**Last Updated:** December 2024
+## 🎯 **What's New**
+
+1. **Clean Structure** - Fresh Next.js app, no legacy code
+2. **Clear Naming** - "iRCommander" throughout
+3. **Better Organization** - Single project, clear purpose
+4. **Same Database** - No data loss, seamless transition
+
+---
+
+**Version:** 1.0.0 (Fresh Start)  
+**Last Updated:** January 2025

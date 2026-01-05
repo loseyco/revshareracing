@@ -23,6 +23,9 @@ out/
 .env.local
 .env.*.local
 
+# Build credentials (contains sensitive data)
+ircommander_client/credentials.py
+
 # IDE
 .vscode/
 .idea/

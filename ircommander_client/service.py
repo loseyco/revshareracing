@@ -8,11 +8,11 @@ import threading
 import subprocess
 import sys
 import importlib
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
 
-from config import HEARTBEAT_INTERVAL, COMMAND_POLL_INTERVAL
+from config import HEARTBEAT_INTERVAL, COMMAND_POLL_INTERVAL, VERSION
 from supabase_client import IRCommanderSupabaseClient, get_client, SupabaseError
-from core import device, telemetry, controls, joystick_config, joystick_monitor
+from core import device, telemetry, controls, joystick_config, joystick_monitor, network_discovery
 
 
 def _check_webrtc_dependencies():
@@ -144,6 +144,19 @@ class IRCommanderService:
             except Exception as e:
                 print(f"[WARN] Remote desktop initialization failed: {e}")
         
+        # Network discovery
+        self.network_discovery = None
+        try:
+            self.network_discovery = network_discovery.get_discovery(
+                device_id=None,  # Will be set after device registration
+                device_name=None,  # Will be set after device registration
+                version=VERSION,
+                on_peer_discovered=self._on_peer_discovered,
+                on_peer_lost=self._on_peer_lost
+            )
+        except Exception as e:
+            print(f"[WARN] Network discovery initialization failed: {e}")
+        
         # Callbacks
         self.on_lap_recorded: Optional[Callable] = None
         self.on_status_change: Optional[Callable] = None
@@ -162,6 +175,11 @@ class IRCommanderService:
             except Exception:
                 self.device_name = device.get_hostname()
             print(f"[OK] Device registered: {self.device_id} ({self.device_name})")
+            
+            # Update network discovery with device info
+            if self.network_discovery:
+                self.network_discovery.device_id = self.device_id
+                self.network_discovery.device_name = self.device_name
         elif self.client.is_logged_in:
             # Auto-register if logged in (with or without tenant)
             # Force new registration if no existing config (fresh start)
@@ -192,6 +210,11 @@ class IRCommanderService:
             self.device_name = result.name or device.get_hostname()
             self.connected = True
             print(f"[OK] Registered device: {self.device_id} ({self.device_name})")
+            
+            # Update network discovery with device info
+            if self.network_discovery:
+                self.network_discovery.device_id = self.device_id
+                self.network_discovery.device_name = self.device_name
             
             # Start command polling if not already running
             if self.running and not self._command_thread:
@@ -238,6 +261,13 @@ class IRCommanderService:
             except Exception as e:
                 print(f"[WARN] Failed to start remote desktop: {e}")
         
+        # Start network discovery
+        if self.network_discovery:
+            try:
+                self.network_discovery.start()
+            except Exception as e:
+                print(f"[WARN] Failed to start network discovery: {e}")
+        
         print("[OK] iRCommander service started")
     
     def stop(self):
@@ -254,6 +284,11 @@ class IRCommanderService:
                 self.remote_desktop_server.stop()
             except Exception as e:
                 print(f"[WARN] Error stopping remote desktop: {e}")
+        if self.network_discovery:
+            try:
+                self.network_discovery.stop()
+            except Exception as e:
+                print(f"[WARN] Error stopping network discovery: {e}")
         self.client.close()
         print("[OK] iRCommander service stopped")
     
@@ -303,7 +338,7 @@ class IRCommanderService:
         return self.controls.execute_action(action)
     
     def reset_car(self) -> Dict:
-        """Execute reset car sequence."""
+        """Execute reset car sequence: reset to pits, then exit car."""
         # Turn off ignition first
         ignition = self.controls.bindings.get("ignition", {}).get("combo")
         if ignition:
@@ -317,11 +352,54 @@ class IRCommanderService:
                 break
             time.sleep(0.2)
         
-        # Reset
-        result = self.controls.execute_action("reset_car")
-        time.sleep(1.0)
+        # Step 1: Reset to pits - hold until state changes
+        result = self.controls.execute_action("reset_car", hold_until_state_change=True)
+        time.sleep(0.5)  # Brief pause after release
         
-        # Turn ignition back on
+        # Turn off ignition after resetting to pits (prevent driver from taking off)
+        # Reset to pits may turn ignition on, so we press it to ensure it's off
+        if ignition:
+            self.controls.execute_combo(ignition)
+            time.sleep(0.2)
+            # Check RPM to verify ignition is off (if RPM is 0, ignition is likely off)
+            # If RPM is still high, press again to ensure it's off
+            telem = telemetry.get_current()
+            if telem.get("rpm", 0) > 500:  # Engine still running
+                print("[INFO] Ignition still on after reset, turning off...")
+                self.controls.execute_combo(ignition)
+                time.sleep(0.2)
+        
+        # Step 2: Check if we're in pits/garage, then reset again to exit car
+        # Wait a moment for state to update after first reset
+        time.sleep(0.3)
+        telem = telemetry.get_current()
+        in_pits = telem.get("on_pit_road", False) or telem.get("in_garage", False)
+        in_car = telem.get("is_on_track_car", False)
+        
+        # If we're in pits/garage and still in car, reset again to exit
+        if in_pits and in_car:
+            print("[INFO] Car reset to pits, now exiting car...")
+            time.sleep(0.5)  # Brief pause before second reset
+            result2 = self.controls.execute_action("reset_car", hold_until_state_change=True)
+            time.sleep(0.3)  # Brief pause after second reset
+            
+            # Check final state
+            telem = telemetry.get_current()
+            final_in_car = telem.get("is_on_track_car", False)
+            
+            # Update result message
+            if result2.get("success") and not final_in_car:
+                result["message"] = "Car reset to pits and exited car"
+                result["success"] = True
+            elif result2.get("success"):
+                result["message"] = "Car reset to pits, exit car may still be in progress"
+            else:
+                result["message"] = f"Reset to pits: {result.get('message', 'OK')}, Exit car: {result2.get('message', 'Failed')}"
+            
+            # Don't turn ignition back on if we exited the car
+            return result
+        
+        # Turn ignition back on (we're staying in the car)
         if ignition:
             self.controls.execute_combo(ignition)
         
@@ -347,6 +425,14 @@ class IRCommanderService:
                     data = telemetry.get_current()
                     if data:
                         self._process_telemetry(data)
+                    
+                    # Update network discovery with iRacing status
+                    if self.network_discovery:
+                        self.network_discovery.set_iracing_status(True)
+                else:
+                    # Update network discovery - iRacing not connected
+                    if self.network_discovery:
+                        self.network_discovery.set_iracing_status(False)
                 
                 time.sleep(0.1)
             except Exception as e:
@@ -427,7 +513,9 @@ class IRCommanderService:
                 "session_id": params.get("session_id")
             }
         except Exception as e:
-            print(f"[ERROR] WebRTC offer handling failed: {e}", exc_info=True)
+            import traceback
+            print(f"[ERROR] WebRTC offer handling failed: {e}")
+            traceback.print_exc()
             return {
                 "success": False,
                 "message": f"WebRTC error: {str(e)}"
@@ -451,7 +539,9 @@ class IRCommanderService:
                 # Fallback: handle directly
                 return self._simulate_input(params)
         except Exception as e:
-            print(f"[ERROR] Remote desktop input handling failed: {e}", exc_info=True)
+            import traceback
+            print(f"[ERROR] Remote desktop input handling failed: {e}")
+            traceback.print_exc()
             return {
                 "success": False,
                 "message": f"Input error: {str(e)}"
@@ -547,7 +637,9 @@ class IRCommanderService:
         except ImportError:
             return {"success": False, "message": "pyautogui not installed"}
         except Exception as e:
-            print(f"[ERROR] Input simulation failed: {e}", exc_info=True)
+            import traceback
+            print(f"[ERROR] Input simulation failed: {e}")
+            traceback.print_exc()
             return {"success": False, "message": str(e)}
     
     def _send_heartbeat(self):
@@ -657,6 +749,30 @@ class IRCommanderService:
         if self.remote_desktop_server:
             return self.remote_desktop_server.get_stats()
         return {"available": False}
+    
+    def get_discovered_peers(self, online_only: bool = True) -> List[Dict]:
+        """
+        Get list of discovered peers on the local network.
+        
+        Args:
+            online_only: If True, only return peers that are currently online
+        
+        Returns:
+            List of peer dictionaries
+        """
+        if not self.network_discovery:
+            return []
+        
+        peers = self.network_discovery.get_peers(online_only=online_only)
+        return [peer.to_dict() for peer in peers]
+    
+    def _on_peer_discovered(self, peer):
+        """Callback when a new peer is discovered."""
+        print(f"[INFO] Discovered peer: {peer.device_name} ({peer.device_id}) at {peer.local_ip}")
+    
+    def _on_peer_lost(self, peer):
+        """Callback when a peer goes offline."""
+        print(f"[INFO] Peer lost: {peer.device_name} ({peer.device_id})")
 
 
 # Singleton

@@ -1,5 +1,5 @@
 # Core modules
-from . import device, telemetry, controls, joystick_config, joystick_monitor
+from . import device, telemetry, controls, joystick_config, joystick_monitor, network_discovery
 
 # Remote desktop (optional)
 try:
@@ -7,4 +7,4 @@ try:
 except ImportError:
     remote_desktop = None
 
-__all__ = ["device", "telemetry", "controls", "joystick_config", "joystick_monitor", "remote_desktop"]
+__all__ = ["device", "telemetry", "controls", "joystick_config", "joystick_monitor", "network_discovery", "remote_desktop"]

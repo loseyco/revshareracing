@@ -118,3 +118,4 @@ To test the credits system:
 - Credit balance is checked before allowing queue join
 - Credits cannot go negative (database constraint)
 
+
